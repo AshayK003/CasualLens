@@ -32,22 +32,18 @@ st.set_page_config(
 # ─── Custom CSS ────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .stApp { }
-    section[data-testid="stSidebar"] {
-        background-color: #f8fafc;
-    }
     section[data-testid="stSidebar"] [data-testid="stMarkdown"] h1 {
         font-size: 1.1rem;
     }
     div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #667eea11 0%, #764ba211 100%);
-        border: 1px solid #e2e8f0;
+        background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.08) 100%);
+        border: 1px solid rgba(148,163,184,0.25);
         border-radius: 12px;
         padding: 12px 16px;
     }
     div[data-testid="stMetric"] label {
         font-size: 0.8rem !important;
-        color: #64748b !important;
+        opacity: 0.7;
     }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
         font-size: 1.4rem !important;
@@ -63,7 +59,7 @@ st.markdown("""
     div[data-testid="stDataFrame"] {
         border-radius: 12px;
         overflow: hidden;
-        border: 1px solid #e2e8f0;
+        border: 1px solid rgba(148,163,184,0.25);
     }
     div[data-testid="stDownloadButton"] > button {
         border-radius: 10px;
@@ -396,29 +392,30 @@ def main():
 
         # Feature cards
         c1, c2, c3 = st.columns(3)
+        card_style = "padding:20px; border-radius:12px; border:1px solid rgba(148,163,184,0.25); background:rgba(148,163,184,0.08);"
         with c1:
-            st.markdown("""
-            <div style="padding:20px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc;">
+            st.markdown(f"""
+            <div style="{card_style}">
                 <h3 style="margin:0; font-size:1.1rem;"> </h3>
-                <p style="margin:8px 0 0; font-size:0.85rem; color:#64748b;">
+                <p style="margin:8px 0 0; font-size:0.85rem; opacity:0.7;">
                     See what would have happened without the policy
                 </p>
             </div>
             """, unsafe_allow_html=True)
         with c2:
-            st.markdown("""
-            <div style="padding:20px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc;">
+            st.markdown(f"""
+            <div style="{card_style}">
                 <h3 style="margin:0; font-size:1.1rem;"> </h3>
-                <p style="margin:8px 0 0; font-size:0.85rem; color:#64748b;">
+                <p style="margin:8px 0 0; font-size:0.85rem; opacity:0.7;">
                     Confidence intervals, p-values, effect sizes
                 </p>
             </div>
             """, unsafe_allow_html=True)
         with c3:
-            st.markdown("""
-            <div style="padding:20px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc;">
+            st.markdown(f"""
+            <div style="{card_style}">
                 <h3 style="margin:0; font-size:1.1rem;"> </h3>
-                <p style="margin:8px 0 0; font-size:0.85rem; color:#64748b;">
+                <p style="margin:8px 0 0; font-size:0.85rem; opacity:0.7;">
                     Download PDF reports and CSV data
                 </p>
             </div>
