@@ -449,7 +449,9 @@ def main():
     with stats_col1:
         st.metric("Rows", f"{len(df):,}")
     with stats_col2:
-        st.metric("Date Range", f"{df[date_col].min().date()} → {df[date_col].max().date()}")
+        min_date_str = pd.to_datetime(df[date_col]).min().date()
+        max_date_str = pd.to_datetime(df[date_col]).max().date()
+        st.metric("Date Range", f"{min_date_str} → {max_date_str}")
     with stats_col3:
         st.metric("Mean", f"{df[metric_col].mean():.2f}")
     with stats_col4:
