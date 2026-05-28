@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class Method(str, Enum):
     ARIMA = "arima"
+    BSTS = "bsts"
 
 
 @dataclass
@@ -83,11 +84,31 @@ def causal_effect(
             n_pre=intervention_idx,
             n_post=len(y) - intervention_idx,
         )
+    elif method == Method.BSTS:
+        from .bsts import run_bsts
+        bsts_result = run_bsts(y, intervention_idx)
+        result = CausalResult(
+            method="bsts",
+            effect=bsts_result.effect,
+            effect_pct=bsts_result.effect_pct,
+            ci_lower=bsts_result.ci_lower,
+            ci_upper=bsts_result.ci_upper,
+            p_value=bsts_result.p_value,
+            significant=bsts_result.p_value < 0.05,
+            direction="increase" if bsts_result.effect > 0 else "decrease",
+            counterfactual=bsts_result.counterfactual,
+            fitted_values=bsts_result.fitted_values,
+            observed=bsts_result.observed,
+            intervention_idx=bsts_result.intervention_idx,
+            dates=[str(d)[:10] for d in dates],
+            n_pre=intervention_idx,
+            n_post=len(y) - intervention_idx,
+        )
     else:
         raise ValueError(f"Unknown method: {method}")
 
     logger.info(
-        f"Analysis complete: effect={result.effect:.4f}, "
+        f"Analysis complete: method={result.method}, effect={result.effect:.4f}, "
         f"p={result.p_value:.4f}, significant={result.significant}"
     )
 

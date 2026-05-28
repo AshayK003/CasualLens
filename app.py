@@ -11,7 +11,9 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 from src.core.engine import causal_effect, Method
+from src.core.placebo import run_placebo_test
 from src.data.loader import get_available_datasets, load_dataset, load_user_csv
+from src.reports.pdf_export import generate_pdf_report
 from src.reports.plots import build_counterfactual_plot
 from src.reports.summary import generate_summary
 from src.utils.validators import validate_dataframe
@@ -121,6 +123,29 @@ def show_results(result_dict: dict, metric_col: str):
     else:
         st.warning(summary_text)
 
+    pdf_bytes = generate_pdf_report(
+        dates=result_dict["dates"],
+        observed=result_dict["observed"],
+        counterfactual=result_dict["counterfactual"],
+        intervention_idx=result_dict["intervention_idx"],
+        effect=result_dict["effect"],
+        effect_pct=result_dict["effect_pct"],
+        ci_lower=result_dict["ci_lower"],
+        ci_upper=result_dict["ci_upper"],
+        p_value=result_dict["p_value"],
+        significant=result_dict["significant"],
+        direction=result_dict["direction"],
+        metric_name=metric_col,
+        method=result_dict["method"],
+    )
+
+    st.download_button(
+        label="Download PDF Report",
+        data=pdf_bytes,
+        file_name="causal_impact_report.pdf",
+        mime="application/pdf",
+    )
+
 
 def main():
     st.sidebar.header("Data Source")
@@ -199,6 +224,17 @@ def main():
         max_value=max_date,
     )
 
+    method = st.sidebar.selectbox(
+        "Method",
+        options=["arima", "bsts"],
+        format_func=lambda x: {
+            "arima": "ARIMA ITS (fast, recommended)",
+            "bsts": "Bayesian STS (slower, may fail)",
+        }.get(x, x),
+    )
+
+    run_placebo = st.sidebar.checkbox("Run placebo sensitivity test", value=False)
+
     if st.sidebar.button("Run Analysis", type="primary", use_container_width=True):
         intervention_str = intervention_date.strftime("%Y-%m-%d")
 
@@ -206,19 +242,43 @@ def main():
             try:
                 df_json = df.to_json(orient="split")
                 result_dict = run_cached_analysis(
-                    df_json, date_col, metric_col, intervention_str, "arima"
+                    df_json, date_col, metric_col, intervention_str, method
                 )
                 st.session_state["result"] = result_dict
                 st.session_state["metric_col"] = metric_col
+                st.session_state["df_raw"] = df
             except Exception as e:
                 st.error(f"Analysis failed: {e}")
                 return
 
+        if run_placebo:
+            with st.spinner("Running placebo sensitivity test..."):
+                try:
+                    y = df[metric_col].values
+                    idx = result_dict["intervention_idx"]
+                    placebo_result = run_placebo_test(y, idx, n_placebos=5)
+                    st.session_state["placebo"] = placebo_result
+                except Exception as e:
+                    st.warning(f"Placebo test failed: {e}")
+
     if "result" in st.session_state:
         show_results(st.session_state["result"], st.session_state["metric_col"])
 
+    if "placebo" in st.session_state:
+        st.subheader("Sensitivity Analysis (Placebo Test)")
+        pb = st.session_state["placebo"]
+        st.write(f"Real effect: **{pb['real_effect']:.2f}**")
+        st.write(f"Placebo effects: {[f'{x:.2f}' for x in pb['placebo_effects']]}")
+        st.write(f"Placebo p-value: **{pb['p_value']:.3f}**")
+        if pb["is_real_effect_extreme"]:
+            st.success("The real effect is extreme compared to placebo effects — result is robust.")
+        else:
+            st.warning("The real effect is not extreme compared to placebo effects — interpret with caution.")
+
     with st.expander("View Raw Data"):
-        st.dataframe(df, use_container_width=True)
+        raw_df = st.session_state.get("df_raw")
+        if raw_df is not None:
+            st.dataframe(raw_df, use_container_width=True)
 
 
 if __name__ == "__main__":
