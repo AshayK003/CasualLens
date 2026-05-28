@@ -38,10 +38,10 @@ def generate_delhi_aqi() -> pd.DataFrame:
 
 def generate_gst_revenue() -> pd.DataFrame:
     np.random.seed(42)
-    n_months = 12 * 7
-    dates = pd.date_range("2017-04-01", periods=n_months, freq="MS")
+    n_months = 12 * 8
+    dates = pd.date_range("2016-01-01", periods=n_months, freq="MS")
 
-    trend = np.linspace(90000, 180000, n_months)
+    trend = np.linspace(80000, 180000, n_months)
     seasonal = 15000 * np.sin(2 * np.pi * np.arange(n_months) / 12)
     noise = np.random.normal(0, 5000, n_months)
 
