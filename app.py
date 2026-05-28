@@ -5,14 +5,15 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from src.core.engine import CausalResult, causal_effect, Method
+from src.core.engine import causal_effect, Method
 from src.data.loader import get_available_datasets, load_dataset, load_user_csv
+from src.reports.plots import build_counterfactual_plot
+from src.reports.summary import generate_summary
 from src.utils.validators import validate_dataframe
 
 logging.basicConfig(level=logging.INFO)
@@ -62,47 +63,63 @@ def run_cached_analysis(
     }
 
 
-def build_plot(result_dict: dict) -> go.Figure:
-    dates = result_dict["dates"]
-    observed = result_dict["observed"]
-    counterfactual = result_dict["counterfactual"]
-    idx = result_dict["intervention_idx"]
+def show_results(result_dict: dict, metric_col: str):
+    st.header("Results")
 
-    fig = go.Figure()
+    col1, col2, col3, col4 = st.columns(4)
 
-    fig.add_trace(go.Scatter(
-        x=dates, y=observed,
-        mode="lines", name="Observed",
-        line=dict(color="#1e293b", width=2),
-    ))
+    effect = result_dict["effect"]
+    effect_pct = result_dict["effect_pct"]
+    p_value = result_dict["p_value"]
+    significant = result_dict["significant"]
 
-    fig.add_trace(go.Scatter(
-        x=dates[:idx], y=counterfactual[:idx],
-        mode="lines", name="Fitted (pre-intervention)",
-        line=dict(color="#6366f1", width=1, dash="dash"),
-    ))
+    with col1:
+        st.metric(
+            "Effect",
+            f"{effect:+.2f}",
+            delta=f"{effect_pct:+.1f}%",
+            delta_color="normal" if effect > 0 else "inverse",
+        )
+    with col2:
+        st.metric("p-value", f"{p_value:.4f}")
+    with col3:
+        st.metric(
+            "Significant",
+            "Yes" if significant else "No",
+            delta="p < 0.05" if significant else "p >= 0.05",
+            delta_color="normal" if significant else "off",
+        )
+    with col4:
+        st.metric(
+            "Data Points",
+            f"{result_dict['n_pre']} pre + {result_dict['n_post']} post",
+        )
 
-    fig.add_trace(go.Scatter(
-        x=dates[idx:], y=counterfactual[idx:],
-        mode="lines", name="Counterfactual (predicted without policy)",
-        line=dict(color="#ef4444", width=2, dash="dash"),
-    ))
+    st.subheader("Counterfactual Visualization")
+    fig = build_counterfactual_plot(
+        dates=result_dict["dates"],
+        observed=result_dict["observed"],
+        counterfactual=result_dict["counterfactual"],
+        intervention_idx=result_dict["intervention_idx"],
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-    intervention_date = dates[idx]
-    fig.add_vline(
-        x=intervention_date, line_dash="dot", line_color="#f59e0b",
-        annotation_text="Intervention", annotation_position="top",
+    st.subheader("Interpretation")
+    summary_text = generate_summary(
+        effect=result_dict["effect"],
+        effect_pct=result_dict["effect_pct"],
+        ci_lower=result_dict["ci_lower"],
+        ci_upper=result_dict["ci_upper"],
+        p_value=result_dict["p_value"],
+        significant=result_dict["significant"],
+        direction=result_dict["direction"],
+        metric_name=metric_col,
     )
 
-    fig.update_layout(
-        xaxis_title="Date",
-        yaxis_title="Value",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=0, r=0, t=30, b=0),
-        height=450,
-    )
-
-    return fig
+    if significant:
+        st.success(summary_text)
+    else:
+        st.warning(summary_text)
 
 
 def main():
@@ -133,7 +150,7 @@ def main():
         if df is not None:
             try:
                 date_col, metric_col = validate_dataframe(df)
-                st.sidebar.info(f"Date column: `{date_col}` | Metric column: `{metric_col}`")
+                st.sidebar.info(f"Date: `{date_col}` | Metric: `{metric_col}`")
             except ValueError as e:
                 st.sidebar.error(str(e))
                 return
@@ -182,12 +199,6 @@ def main():
         max_value=max_date,
     )
 
-    method = st.sidebar.selectbox(
-        "Method",
-        options=["arima"],
-        format_func=lambda x: {"arima": "ARIMA ITS (fast)"}.get(x, x),
-    )
-
     if st.sidebar.button("Run Analysis", type="primary", use_container_width=True):
         intervention_str = intervention_date.strftime("%Y-%m-%d")
 
@@ -195,77 +206,16 @@ def main():
             try:
                 df_json = df.to_json(orient="split")
                 result_dict = run_cached_analysis(
-                    df_json, date_col, metric_col, intervention_str, method
+                    df_json, date_col, metric_col, intervention_str, "arima"
                 )
                 st.session_state["result"] = result_dict
+                st.session_state["metric_col"] = metric_col
             except Exception as e:
                 st.error(f"Analysis failed: {e}")
                 return
 
     if "result" in st.session_state:
-        result_dict = st.session_state["result"]
-        show_results(result_dict, df, date_col, metric_col)
-
-
-def show_results(result_dict: dict, df: pd.DataFrame, date_col: str, metric_col: str):
-    st.header("Results")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    effect = result_dict["effect"]
-    effect_pct = result_dict["effect_pct"]
-    p_value = result_dict["p_value"]
-    significant = result_dict["significant"]
-
-    with col1:
-        st.metric(
-            "Effect",
-            f"{effect:+.2f}",
-            delta=f"{effect_pct:+.1f}%",
-            delta_color="normal" if effect > 0 else "inverse",
-        )
-    with col2:
-        st.metric("p-value", f"{p_value:.4f}")
-    with col3:
-        st.metric(
-            "Significant",
-            "Yes" if significant else "No",
-            delta="p < 0.05" if significant else "p >= 0.05",
-            delta_color="normal" if significant else "off",
-        )
-    with col4:
-        st.metric(
-            "Data Points",
-            f"{result_dict['n_pre']} pre + {result_dict['n_post']} post",
-        )
-
-    st.subheader("Counterfactual Visualization")
-    fig = build_plot(result_dict)
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Interpretation")
-    direction = result_dict["direction"]
-    if significant:
-        if direction == "increase":
-            st.success(
-                f"The intervention caused a **{abs(effect_pct):.1f}% increase** "
-                f"in {metric_col} (95% CI [{result_dict['ci_lower']:.2f}, "
-                f"{result_dict['ci_upper']:.2f}], p={p_value:.4f}). "
-                "This effect is **statistically significant**."
-            )
-        else:
-            st.success(
-                f"The intervention caused a **{abs(effect_pct):.1f}% decrease** "
-                f"in {metric_col} (95% CI [{result_dict['ci_lower']:.2f}, "
-                f"{result_dict['ci_upper']:.2f}], p={p_value:.4f}). "
-                "This effect is **statistically significant**."
-            )
-    else:
-        st.warning(
-            f"The intervention did not produce a statistically significant "
-            f"effect on {metric_col} (p={p_value:.4f}). "
-            "The observed change may be due to random variation."
-        )
+        show_results(st.session_state["result"], st.session_state["metric_col"])
 
     with st.expander("View Raw Data"):
         st.dataframe(df, use_container_width=True)
