@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from enum import Enum
+
+import numpy as np
+
+from .arima_its import ITSResult, run_arima_its
+from ..utils.validators import (
+    validate_dataframe,
+    validate_intervention_date,
+    validate_series_length,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class Method(str, Enum):
+    ARIMA = "arima"
+
+
+@dataclass
+class CausalResult:
+    method: str
+    effect: float
+    effect_pct: float
+    ci_lower: float
+    ci_upper: float
+    p_value: float
+    significant: bool
+    direction: str
+    counterfactual: np.ndarray
+    fitted_values: np.ndarray
+    observed: np.ndarray
+    intervention_idx: int
+    dates: list[str]
+    n_pre: int
+    n_post: int
+
+
+def causal_effect(
+    df: "pd.DataFrame",
+    date_col: str,
+    metric_col: str,
+    intervention_date: str,
+    method: Method = Method.ARIMA,
+) -> CausalResult:
+    import pandas as pd
+
+    date_col, metric_col = validate_dataframe(df)
+
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col])
+    df = df.sort_values(date_col).reset_index(drop=True)
+    df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
+    df = df.dropna(subset=[metric_col])
+
+    dates = df[date_col].values
+    y = df[metric_col].values
+
+    intervention_idx = validate_intervention_date(
+        pd.DatetimeIndex(dates), intervention_date
+    )
+    validate_series_length(y)
+
+    if method == Method.ARIMA:
+        arima_result = run_arima_its(y, intervention_idx)
+        result = CausalResult(
+            method="arima",
+            effect=arima_result.effect,
+            effect_pct=arima_result.effect_pct,
+            ci_lower=arima_result.ci_lower,
+            ci_upper=arima_result.ci_upper,
+            p_value=arima_result.p_value,
+            significant=arima_result.p_value < 0.05,
+            direction="increase" if arima_result.effect > 0 else "decrease",
+            counterfactual=arima_result.counterfactual,
+            fitted_values=arima_result.fitted_values,
+            observed=arima_result.observed,
+            intervention_idx=arima_result.intervention_idx,
+            dates=[str(d)[:10] for d in dates],
+            n_pre=intervention_idx,
+            n_post=len(y) - intervention_idx,
+        )
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    logger.info(
+        f"Analysis complete: effect={result.effect:.4f}, "
+        f"p={result.p_value:.4f}, significant={result.significant}"
+    )
+
+    return result
