@@ -454,6 +454,8 @@ def main():
     with stats_col4:
         st.metric("Std Dev", f"{df[metric_col].std():.2f}")
 
+    st.session_state["df_raw"] = df
+
     # ── Run analysis ──
     if run_clicked:
         intervention_str = intervention_date.strftime("%Y-%m-%d")
