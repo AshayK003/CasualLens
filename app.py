@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from src.core.engine import causal_effect, Method
 from src.core.placebo import run_placebo_test
 from src.data.loader import get_available_datasets, load_dataset, load_user_csv
+from src.data.preprocessor import preprocess_data, detect_date_column, detect_numeric_columns
 from src.reports.pdf_export import generate_pdf_report
 from src.reports.plots import build_counterfactual_plot
 from src.reports.summary import generate_summary
@@ -261,6 +262,7 @@ def build_sidebar():
         date_col = None
         metric_col = None
         default_intervention = None
+        preprocess_report = None
 
         if source == "Upload CSV":
             uploaded_file = st.file_uploader(
@@ -276,10 +278,43 @@ def build_sidebar():
                     st.error(str(e))
 
             if df is not None:
+                st.markdown("###  Preprocessing")
+                missing_strategy = st.selectbox(
+                    "Handle missing values",
+                    options=["drop", "forward_fill", "mean"],
+                    format_func=lambda x: {
+                        "drop": "Drop rows with NaN",
+                        "forward_fill": "Forward-fill gaps",
+                        "mean": "Fill with column mean",
+                    }.get(x, x),
+                )
+                remove_outliers = st.checkbox("Remove outliers (IQR method)", value=False)
+
+                df, preprocess_report = preprocess_data(
+                    df,
+                    missing_strategy=missing_strategy,
+                    remove_outliers_flag=remove_outliers,
+                )
+
+                if preprocess_report.steps_applied:
+                    with st.expander("Preprocessing steps", expanded=False):
+                        for step in preprocess_report.steps_applied:
+                            st.markdown(f"- {step}")
+                        if preprocess_report.warnings:
+                            for warn in preprocess_report.warnings:
+                                st.warning(warn)
+
                 try:
-                    date_col, metric_col = validate_dataframe(df)
-                    st.info(f" **Date:** `{date_col}` | **Metric:** `{metric_col}`")
-                except ValueError as e:
+                    date_col = detect_date_column(df)
+                    numeric_cols = detect_numeric_columns(df, exclude=[date_col] if date_col else [])
+                    metric_col = numeric_cols[0] if numeric_cols else None
+
+                    if date_col and metric_col:
+                        st.info(f" **Date:** `{date_col}` | **Metric:** `{metric_col}`")
+                    else:
+                        st.error("Could not auto-detect date and metric columns after preprocessing.")
+                        df = None
+                except Exception as e:
                     st.error(str(e))
                     df = None
         else:
@@ -347,9 +382,9 @@ def build_sidebar():
                 use_container_width=True,
             )
 
-            return df, date_col, metric_col, intervention_date, method, run_placebo, run_clicked
+            return df, date_col, metric_col, intervention_date, method, run_placebo, run_clicked, preprocess_report
 
-        return None, None, None, None, None, None, False
+        return None, None, None, None, None, None, False, None
 
 
 # ─── Main ──────────────────────────────────────────────────────
@@ -362,6 +397,7 @@ def main():
         method,
         run_placebo,
         run_clicked,
+        preprocess_report,
     ) = build_sidebar()
 
     # ── Empty state ──
