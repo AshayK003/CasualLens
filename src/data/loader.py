@@ -54,14 +54,18 @@ def load_uploaded_file(file) -> pd.DataFrame:
 
     try:
         if filename.endswith(".csv"):
+            file.seek(0)
             df = pd.read_csv(file)
         elif filename.endswith((".xlsx", ".xls")):
+            file.seek(0)
             df = pd.read_excel(file, engine="openpyxl")
         else:
             raise ValueError(
                 f"Unsupported file format: '{file.name}'. "
                 "Please upload a CSV or Excel file (.csv, .xlsx, .xls)."
             )
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Failed to read file: {e}")
 

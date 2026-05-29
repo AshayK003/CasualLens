@@ -79,7 +79,16 @@ def run_cached_analysis(
     intervention_date: str,
     method: str,
 ) -> dict:
-    df = pd.read_json(df_json, orient="split")
+    try:
+        df = pd.read_json(df_json, orient="split")
+    except Exception as e:
+        st.error(f"Failed to deserialize data: {e}")
+        return {}
+    
+    if df.empty:
+        st.error("No data to analyze after deserialization.")
+        return {}
+    
     result = causal_effect(
         df=df,
         date_col=date_col,
@@ -502,6 +511,8 @@ def main():
                 result_dict = run_cached_analysis(
                     df_json, date_col, metric_col, intervention_str, method
                 )
+                if not result_dict:
+                    return
                 st.session_state["result"] = result_dict
                 st.session_state["metric_col"] = metric_col
                 st.session_state["df_raw"] = df
@@ -579,10 +590,11 @@ def main():
             tab_view, tab_stats, tab_download = st.tabs(["Data", "Statistics", "Download"])
 
             with tab_view:
+                min_height = 35 * 10 + 40
                 st.dataframe(
                     raw_df,
                     use_container_width=True,
-                    height=min(400, 35 * len(raw_df) + 40),
+                    height=min(600, max(min_height, 35 * len(raw_df) + 40)),
                 )
 
             with tab_stats:
