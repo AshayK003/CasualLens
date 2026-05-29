@@ -106,17 +106,40 @@ def parse_dates(df: pd.DataFrame, date_col: str) -> tuple[pd.DataFrame, list[str
     if pd.api.types.is_datetime64_any_dtype(df[date_col]):
         return df, steps
 
+    df = df.copy()
+
+    if df[date_col].dtype in [np.int64, np.float64]:
+        min_val = df[date_col].min()
+        max_val = df[date_col].max()
+        if min_val < -1e10 or max_val > 1e18:
+            steps.append(
+                f"Skipped date parsing for '{date_col}': "
+                f"numeric values out of datetime range ({min_val} to {max_val})"
+            )
+            return df, steps
+
     try:
-        df = df.copy()
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        n_failed = df[date_col].isna().sum()
-        if n_failed > 0:
-            steps.append(f"Parsed dates: {n_failed} values failed, dropped")
-            df = df.dropna(subset=[date_col])
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce", format="mixed")
+    except Exception:
+        try:
+            df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        except Exception as e:
+            steps.append(f"Date parsing failed: {e}")
+            return df, steps
+
+    n_failed = df[date_col].isna().sum()
+    n_total = len(df)
+
+    if n_failed > 0:
+        if n_failed == n_total:
+            steps.append(f"Date parsing failed: all {n_total} values invalid, column skipped")
         else:
-            steps.append(f"Parsed '{date_col}' as datetime")
-    except Exception as e:
-        steps.append(f"Date parsing failed: {e}")
+            steps.append(f"Parsed dates: {n_failed}/{n_total} values failed, dropped")
+            df = df.dropna(subset=[date_col])
+    else:
+        steps.append(f"Parsed '{date_col}' as datetime")
+
+    return df, steps
 
     return df, steps
 

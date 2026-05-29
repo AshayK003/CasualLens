@@ -52,7 +52,13 @@ def causal_effect(
     date_col, metric_col = validate_dataframe(df)
 
     df = df.copy()
-    df[date_col] = pd.to_datetime(df[date_col])
+
+    if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce", format="mixed")
+        n_failed = df[date_col].isna().sum()
+        if n_failed > 0:
+            df = df.dropna(subset=[date_col])
+
     df = df.sort_values(date_col).reset_index(drop=True)
     df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
     df = df.dropna(subset=[metric_col])
