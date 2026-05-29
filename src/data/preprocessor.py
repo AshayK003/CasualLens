@@ -63,7 +63,7 @@ def clean_column_names(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
         if not new_name:
             new_name = f"col_{len(new_cols)}"
         if new_name != col:
-            steps.append(f"Renamed '{col}' → '{new_name}'")
+            steps.append(f"Renamed '{col}' -> '{new_name}'")
         new_cols.append(new_name)
 
     if steps:
@@ -114,7 +114,7 @@ def parse_dates(df: pd.DataFrame, date_col: str) -> tuple[pd.DataFrame, list[str
         if min_val < -1e10 or max_val > 1e18:
             steps.append(
                 f"Skipped date parsing for '{date_col}': "
-                f"numeric values out of datetime range ({min_val} to {max_val})"
+                f"numeric values out of datetime range"
             )
             return df, steps
 
@@ -131,19 +131,74 @@ def parse_dates(df: pd.DataFrame, date_col: str) -> tuple[pd.DataFrame, list[str
 
     n_failed = df[date_col].isna().sum()
     n_total = len(df)
+    success_rate = (n_total - n_failed) / n_total if n_total > 0 else 0
 
     if n_failed > 0:
         if n_failed == n_total:
-            steps.append(f"Date parsing failed: all {n_total} values invalid, column skipped")
+            steps.append(f"Date parsing failed: all {n_total} values invalid")
+        elif success_rate < 0.5:
+            steps.append(
+                f"Date parsing: only {int(success_rate * 100)}% success rate, skipped"
+            )
         else:
-            steps.append(f"Parsed dates: {n_failed}/{n_total} values failed, dropped")
+            steps.append(f"Parsed dates: dropped {n_failed}/{n_total} invalid rows")
             df = df.dropna(subset=[date_col])
     else:
         steps.append(f"Parsed '{date_col}' as datetime")
 
     return df, steps
 
-    return df, steps
+
+def try_construct_date_from_year_month(df: pd.DataFrame) -> tuple[pd.DataFrame, str | None, list[str]]:
+    steps = []
+    year_col = None
+    month_col = None
+
+    for col in df.columns:
+        if col in ("year", "yr", "fiscal_year"):
+            if pd.api.types.is_numeric_dtype(df[col]):
+                year_col = col
+            else:
+                try:
+                    converted = pd.to_numeric(df[col], errors="coerce")
+                    if converted.notna().sum() > len(df) * 0.5:
+                        year_col = col
+                except Exception:
+                    pass
+
+    for col in df.columns:
+        if col in ("month", "mo", "mon") and pd.api.types.is_numeric_dtype(df[col]):
+            values = df[col].dropna()
+            if values.min() >= 1 and values.max() <= 12:
+                month_col = col
+
+    if year_col and month_col:
+        df = df.copy()
+        df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+        df[month_col] = pd.to_numeric(df[month_col], errors="coerce")
+        df = df.dropna(subset=[year_col, month_col])
+        df["__constructed_date"] = pd.to_datetime(
+            df[year_col].astype(int).astype(str) + "-" +
+            df[month_col].astype(int).astype(str).str.zfill(2) + "-01",
+            errors="coerce",
+        )
+        df = df.dropna(subset=["__constructed_date"])
+        steps.append(f"Constructed date from '{year_col}' + '{month_col}' columns")
+        return df, "__constructed_date", steps
+
+    if year_col:
+        df = df.copy()
+        df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+        df = df.dropna(subset=[year_col])
+        df["__constructed_date"] = pd.to_datetime(
+            df[year_col].astype(int).astype(str) + "-01-01",
+            errors="coerce",
+        )
+        df = df.dropna(subset=["__constructed_date"])
+        steps.append(f"Constructed date from '{year_col}' column (year only)")
+        return df, "__constructed_date", steps
+
+    return df, None, steps
 
 
 def parse_numeric(df: pd.DataFrame, col: str) -> tuple[pd.DataFrame, list[str]]:
@@ -262,6 +317,22 @@ def preprocess_data(
         df, steps = parse_dates(df, date_col)
         report.steps_applied.extend(steps)
 
+        n_dt = df[date_col].notna().sum() if date_col in df.columns else 0
+        if n_dt < len(df) * 0.5:
+            report.warnings.append(
+                f"Date column '{date_col}' has too few valid dates ({n_dt}/{len(df)}). "
+                "Attempting to construct date from year/month columns."
+            )
+            df_restored = df.copy()
+            if "__constructed_date" in df_restored.columns:
+                df_restored = df_restored.drop(columns=["__constructed_date"])
+            df_constructed, new_date_col, construct_steps = try_construct_date_from_year_month(df_restored)
+            report.steps_applied.extend(construct_steps)
+            if new_date_col:
+                date_col = new_date_col
+                df = df_constructed
+                report.warnings.append(f"Using constructed date column: '{date_col}'")
+
     if metric_col is None:
         exclude = [date_col] if date_col else []
         numeric_cols = detect_numeric_columns(df, exclude=exclude)
@@ -286,8 +357,14 @@ def preprocess_data(
     report.final_rows = len(df)
     report.final_cols = len(df.columns)
 
+    if len(df) < 30:
+        report.warnings.append(
+            f"Only {len(df)} rows remaining after preprocessing. "
+            "Results may be unreliable with less than 30 data points."
+        )
+
     logger.info(
-        f"Preprocessing complete: {report.original_rows} → {report.final_rows} rows, "
+        f"Preprocessing complete: {report.original_rows} -> {report.final_rows} rows, "
         f"{len(report.steps_applied)} steps applied"
     )
 
