@@ -54,14 +54,22 @@ def causal_effect(
     df = df.copy()
 
     if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce", format="mixed")
+        df[date_col] = pd.to_datetime(
+            df[date_col].astype(str), errors="coerce", format="mixed"
+        )
         n_failed = df[date_col].isna().sum()
         if n_failed > 0:
             df = df.dropna(subset=[date_col])
 
+    if df.empty:
+        raise ValueError("No valid data after date parsing.")
+
     df = df.sort_values(date_col).reset_index(drop=True)
     df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
     df = df.dropna(subset=[metric_col])
+
+    if df.empty:
+        raise ValueError("No valid data after numeric conversion.")
 
     dates = df[date_col].values
     y = df[metric_col].values

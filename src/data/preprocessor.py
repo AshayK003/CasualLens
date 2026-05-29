@@ -119,10 +119,12 @@ def parse_dates(df: pd.DataFrame, date_col: str) -> tuple[pd.DataFrame, list[str
             return df, steps
 
     try:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce", format="mixed")
+        df[date_col] = pd.to_datetime(
+            df[date_col].astype(str), errors="coerce", format="mixed"
+        )
     except Exception:
         try:
-            df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+            df[date_col] = pd.to_datetime(df[date_col].astype(str), errors="coerce")
         except Exception as e:
             steps.append(f"Date parsing failed: {e}")
             return df, steps

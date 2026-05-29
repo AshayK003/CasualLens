@@ -55,8 +55,11 @@ def validate_intervention_date(
     dates: pd.DatetimeIndex, intervention_date: str
 ) -> int:
     try:
-        intervention_dt = pd.to_datetime(intervention_date)
+        intervention_dt = pd.to_datetime(str(intervention_date))
     except Exception:
+        raise ValueError(f"Cannot parse intervention date: {intervention_date}")
+
+    if pd.isna(intervention_dt):
         raise ValueError(f"Cannot parse intervention date: {intervention_date}")
 
     idx = dates.get_indexer([intervention_dt], method="nearest")[0]

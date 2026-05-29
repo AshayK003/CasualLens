@@ -506,7 +506,10 @@ def main():
                 st.session_state["metric_col"] = metric_col
                 st.session_state["df_raw"] = df
             except Exception as e:
+                import traceback
                 st.error(f"Analysis failed: `{e}`")
+                with st.expander("Error details", expanded=True):
+                    st.code(traceback.format_exc())
                 return
 
         if run_placebo:
