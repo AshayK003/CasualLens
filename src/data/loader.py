@@ -18,7 +18,7 @@ AVAILABLE_DATASETS = {
         "intervention_date": "2020-03-25",
     },
     "gst_revenue": {
-        "label": "India GST Revenue (Monthly, 2017-2024)",
+        "label": "India GST Revenue (Monthly, 2016-2023)",
         "description": "Monthly GST collections. Test the GST implementation effect.",
         "date_col": "month",
         "metric_col": "revenue_cr",
@@ -49,13 +49,29 @@ def load_dataset(name: str) -> pd.DataFrame:
     return df
 
 
-def load_user_csv(file) -> pd.DataFrame:
+def load_uploaded_file(file) -> pd.DataFrame:
+    filename = file.name.lower()
+
     try:
-        df = pd.read_csv(file)
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file)
+        elif filename.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(file, engine="openpyxl")
+        else:
+            raise ValueError(
+                f"Unsupported file format: '{file.name}'. "
+                "Please upload a CSV or Excel file (.csv, .xlsx, .xls)."
+            )
     except Exception as e:
-        raise ValueError(f"Failed to read CSV: {e}")
+        raise ValueError(f"Failed to read file: {e}")
 
     if df.empty:
-        raise ValueError("CSV file is empty")
+        raise ValueError("File is empty — no data rows found.")
 
+    if len(df.columns) < 2:
+        raise ValueError(
+            "File must have at least 2 columns (a date column and a metric column)."
+        )
+
+    logger.info(f"Loaded uploaded file: {len(df)} rows, {len(df.columns)} cols")
     return df

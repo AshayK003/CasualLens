@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.core.engine import causal_effect, Method
 from src.core.placebo import run_placebo_test
-from src.data.loader import get_available_datasets, load_dataset, load_user_csv
+from src.data.loader import get_available_datasets, load_dataset, load_uploaded_file
 from src.data.preprocessor import preprocess_data, detect_date_column, detect_numeric_columns
 from src.reports.pdf_export import generate_pdf_report
 from src.reports.plots import build_counterfactual_plot
@@ -254,7 +254,7 @@ def build_sidebar():
         st.markdown("###  1. Data Source")
         source = st.radio(
             "Choose data source",
-            ["Upload CSV", "Pre-loaded dataset"],
+            ["Upload File", "Pre-loaded dataset"],
             label_visibility="collapsed",
         )
 
@@ -264,15 +264,15 @@ def build_sidebar():
         default_intervention = None
         preprocess_report = None
 
-        if source == "Upload CSV":
+        if source == "Upload File":
             uploaded_file = st.file_uploader(
-                "Upload a CSV file",
-                type=["csv"],
-                help="CSV must have at least a date column and a numeric column",
+                "Upload a data file",
+                type=["csv", "xlsx", "xls"],
+                help="Supports CSV and Excel files (.csv, .xlsx, .xls)",
             )
             if uploaded_file is not None:
                 try:
-                    df = load_user_csv(uploaded_file)
+                    df = load_uploaded_file(uploaded_file)
                     st.success(f"Loaded {len(df)} rows, {len(df.columns)} columns")
                 except ValueError as e:
                     st.error(str(e))
