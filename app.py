@@ -73,22 +73,12 @@ st.markdown("""
 # ─── Cache ─────────────────────────────────────────────────────
 @st.cache_data
 def run_cached_analysis(
-    df_json: str,
+    df: pd.DataFrame,
     date_col: str,
     metric_col: str,
     intervention_date: str,
     method: str,
 ) -> dict:
-    try:
-        df = pd.read_json(df_json, orient="split")
-    except Exception as e:
-        st.error(f"Failed to deserialize data: {e}")
-        return {}
-    
-    if df.empty:
-        st.error("No data to analyze after deserialization.")
-        return {}
-    
     result = causal_effect(
         df=df,
         date_col=date_col,
@@ -507,9 +497,8 @@ def main():
 
         with st.spinner("Running causal analysis..."):
             try:
-                df_json = df.to_json(orient="split")
                 result_dict = run_cached_analysis(
-                    df_json, date_col, metric_col, intervention_str, method
+                    df, date_col, metric_col, intervention_str, method
                 )
                 if not result_dict:
                     return
