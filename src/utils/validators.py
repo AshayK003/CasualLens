@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .constants import MIN_DATA_POINTS_RATIO
+
 
 def validate_dataframe(df: pd.DataFrame) -> tuple[str, str]:
     if df.empty:
@@ -62,6 +64,10 @@ def validate_intervention_date(
     if pd.isna(intervention_dt):
         raise ValueError(f"Cannot parse intervention date: {intervention_date}")
 
+    # Ensure dates are unique before indexing
+    if not dates.is_unique:
+        dates = pd.DatetimeIndex(dates.unique())
+
     idx = dates.get_indexer([intervention_dt], method="nearest")[0]
 
     n = len(dates)
@@ -72,15 +78,17 @@ def validate_intervention_date(
             f"({dates[0].date()} to {dates[-1].date()})."
         )
 
-    if idx < n * 0.1:
+    min_before = max(3, int(n * MIN_DATA_POINTS_RATIO))
+    min_after = max(3, int(n * MIN_DATA_POINTS_RATIO))
+    if idx < min_before:
         raise ValueError(
             f"Intervention date is too early ({idx}/{n} data points before). "
-            "Need at least 10% of data before intervention."
+            f"Need at least {min_before} data points before intervention."
         )
-    if idx > n * 0.9:
+    if n - idx - 1 < min_after:
         raise ValueError(
             f"Intervention date is too late ({n - idx}/{n} data points after). "
-            "Need at least 10% of data after intervention."
+            f"Need at least {min_after} data points after intervention."
         )
 
     return int(idx)
@@ -89,6 +97,6 @@ def validate_intervention_date(
 def validate_series_length(y: np.ndarray, min_length: int = 30) -> None:
     if len(y) < min_length:
         raise ValueError(
-            f"Time series too short: {len(y)} points. "
-            f"Need at least {min_length} points for reliable analysis."
+            f"Time series has only {len(y)} data points, but at least {min_length} are needed. "
+            f"Upload a dataset with more rows, or use a pre-loaded dataset."
         )

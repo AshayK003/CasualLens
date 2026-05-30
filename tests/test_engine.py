@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from src.core.arima_its import run_arima_its
-from src.core.engine import causal_effect, Method
+from src.core.engine import Method, causal_effect
 from src.utils.validators import (
     validate_dataframe,
     validate_intervention_date,
@@ -75,7 +75,7 @@ class TestValidators:
 
     def test_validate_series_length_too_short(self):
         y = np.random.randn(10)
-        with pytest.raises(ValueError, match="too short"):
+        with pytest.raises(ValueError, match="at least 30"):
             validate_series_length(y, min_length=30)
 
 
@@ -132,6 +132,31 @@ class TestARIMAITS:
         assert isinstance(result.p_value, float)
         assert isinstance(result.ci_lower, float)
         assert isinstance(result.ci_upper, float)
+
+    def test_auto_arima_selects_order(self):
+        np.random.seed(42)
+        n = 100
+        t = np.arange(n)
+        y = 50 + 0.5 * t + np.random.normal(0, 2, n)
+        result = run_arima_its(y, intervention_idx=70)
+        assert isinstance(result.arima_order, tuple)
+        assert len(result.arima_order) == 3
+        assert isinstance(result.aic, float)
+        assert result.aic < np.inf
+
+    def test_diagnostics_fields_present(self):
+        np.random.seed(42)
+        y = np.random.randn(80)
+        result = run_arima_its(y, intervention_idx=60)
+        assert isinstance(result.ljung_box_pvalue, float)
+        assert 0 <= result.ljung_box_pvalue <= 1
+        assert isinstance(result.residuals_ok, bool)
+
+    def test_explicit_order_skips_auto(self):
+        np.random.seed(42)
+        y = np.random.randn(80)
+        result = run_arima_its(y, intervention_idx=60, order=(1, 1, 1))
+        assert result.arima_order == (1, 1, 1)
 
 
 class TestEngine:

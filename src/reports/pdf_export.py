@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+from ..utils.formatters import format_ci, format_effect, format_effect_pct, format_p_value
 
 
 def generate_pdf_report(
@@ -63,7 +65,7 @@ def generate_pdf_report(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 
     pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
@@ -90,9 +92,9 @@ def generate_pdf_report(
             styles["Heading2"],
         ))
 
-    story.append(Paragraph(f"<b>Effect:</b> {effect:+.2f} ({effect_pct:+.1f}%)", styles["Normal"]))
-    story.append(Paragraph(f"<b>95% CI:</b> [{ci_lower:.2f}, {ci_upper:.2f}]", styles["Normal"]))
-    story.append(Paragraph(f"<b>p-value:</b> {p_value:.4f}", styles["Normal"]))
+    story.append(Paragraph(f"<b>Effect:</b> {format_effect(effect)} ({format_effect_pct(effect_pct)})", styles["Normal"]))
+    story.append(Paragraph(f"<b>95% CI:</b> {format_ci(ci_lower, ci_upper)}", styles["Normal"]))
+    story.append(Paragraph(f"<b>p-value:</b> {format_p_value(p_value)}", styles["Normal"]))
     story.append(Spacer(1, 12))
 
     chart_img = Image(img_buffer, width=6 * inch, height=4 * inch)
@@ -102,20 +104,20 @@ def generate_pdf_report(
     if significant:
         if direction == "increase":
             story.append(Paragraph(
-                f"The intervention caused a {abs(effect_pct):.1f}% increase in {metric_name}. "
-                f"This effect is statistically significant (p={p_value:.4f}).",
+                f"The intervention caused a {format_effect_pct(abs(effect_pct))} increase in {metric_name}. "
+                f"This effect is statistically significant (p={format_p_value(p_value)}).",
                 styles["Normal"],
             ))
         else:
             story.append(Paragraph(
-                f"The intervention caused a {abs(effect_pct):.1f}% decrease in {metric_name}. "
-                f"This effect is statistically significant (p={p_value:.4f}).",
+                f"The intervention caused a {format_effect_pct(abs(effect_pct))} decrease in {metric_name}. "
+                f"This effect is statistically significant (p={format_p_value(p_value)}).",
                 styles["Normal"],
             ))
     else:
         story.append(Paragraph(
             f"The intervention did not produce a statistically significant effect on {metric_name} "
-            f"(p={p_value:.4f}). The observed change may be due to random variation.",
+            f"(p={format_p_value(p_value)}). The observed change may be due to random variation.",
             styles["Normal"],
         ))
 

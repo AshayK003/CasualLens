@@ -34,6 +34,10 @@ desktop.ini
 .env.local
 .env.*.local
 
+# opencode config (contains API keys)
+opencode.json
+opencode.jsonc
+
 # Streamlit
 .streamlit/secrets.toml
 
@@ -46,3 +50,7 @@ coverage.xml
 # Distribution
 *.tar.gz
 *.whl
+
+# Project-specific
+*.log
+logs/

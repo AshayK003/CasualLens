@@ -1,10 +1,9 @@
 import io
 
-import numpy as np
 import pandas as pd
 import pytest
 
-from src.data.loader import load_uploaded_file, load_dataset, get_available_datasets
+from src.data.loader import get_available_datasets, load_dataset, load_uploaded_file
 
 
 class TestLoadUploadedCSV:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..utils.formatters import format_ci, format_effect_pct, format_p_value
+
 
 def generate_summary(
     effect: float,
@@ -11,22 +13,19 @@ def generate_summary(
     direction: str,
     metric_name: str = "the metric",
 ) -> str:
+    ci_str = format_ci(ci_lower, ci_upper)
+    p_str = format_p_value(p_value)
+    pct_str = format_effect_pct(abs(effect_pct))
+
     if significant:
-        if direction == "increase":
-            return (
-                f"The intervention caused a **{abs(effect_pct):.1f}% increase** "
-                f"in {metric_name} (95% CI [{ci_lower:.2f}, {ci_upper:.2f}], "
-                f"p={p_value:.4f}). This effect is **statistically significant**."
-            )
-        else:
-            return (
-                f"The intervention caused a **{abs(effect_pct):.1f}% decrease** "
-                f"in {metric_name} (95% CI [{ci_lower:.2f}, {ci_upper:.2f}], "
-                f"p={p_value:.4f}). This effect is **statistically significant**."
-            )
-    else:
+        verb = "increase" if direction == "increase" else "decrease"
         return (
-            f"The intervention did not produce a statistically significant "
-            f"effect on {metric_name} (p={p_value:.4f}). "
-            f"The observed change ({direction}) may be due to random variation."
+            f"The intervention caused a **{pct_str} {verb}** "
+            f"in {metric_name} (95% CI {ci_str}, "
+            f"p={p_str}). This effect is **statistically significant**."
         )
+    return (
+        f"The intervention did not produce a statistically significant "
+        f"effect on {metric_name} (p={p_str}). "
+        f"The observed change ({direction}) may be due to random variation."
+    )

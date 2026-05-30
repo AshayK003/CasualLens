@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats
+from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.arima.model import ARIMA
+
+from ..utils.constants import DEFAULT_CI_ALPHA
+
+__all__ = ["run_arima_its", "ITSResult"]
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +28,63 @@ class ITSResult:
     residuals: np.ndarray
     observed: np.ndarray
     intervention_idx: int
+    arima_order: tuple[int, int, int]
+    aic: float
+    ljung_box_pvalue: float
+    residuals_ok: bool
+
+
+def _select_arima_order(
+    y: np.ndarray,
+    max_p: int = 3,
+    max_d: int = 1,
+    max_q: int = 3,
+) -> tuple[int, int, int]:
+    best_aic = np.inf
+    best_order = (1, 1, 1)
+
+    for p in range(max_p + 1):
+        for d in range(max_d + 1):
+            for q in range(max_q + 1):
+                if p == 0 and q == 0:
+                    continue
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        model = ARIMA(y, order=(p, d, q))
+                        fitted = model.fit()
+                    if fitted.aic < best_aic:
+                        best_aic = fitted.aic
+                        best_order = (p, d, q)
+                except Exception:
+                    continue
+
+    return best_order
+
+
+def _select_arima_order_fast(
+    y: np.ndarray,
+) -> tuple[int, int, int]:
+    if len(y) > 1000:
+        return _select_arima_order(y, max_p=1, max_d=1, max_q=1)
+    if len(y) > 300:
+        return _select_arima_order(y, max_p=2, max_d=1, max_q=2)
+    return _select_arima_order(y)
+
+
+def _check_residuals(residuals: np.ndarray) -> tuple[float, bool]:
+    n_lags = min(10, len(residuals) // 5)
+    if n_lags < 1:
+        return 1.0, True
+    lb_result = acorr_ljungbox(residuals, lags=[n_lags], return_df=True)
+    lb_pvalue = float(lb_result["lb_pvalue"].iloc[0])
+    return lb_pvalue, lb_pvalue > 0.05
 
 
 def run_arima_its(
     y: np.ndarray,
     intervention_idx: int,
-    order: tuple[int, int, int] = (1, 1, 1),
+    order: tuple[int, int, int] | None = None,
 ) -> ITSResult:
     y = np.asarray(y, dtype=float)
     n = len(y)
@@ -35,12 +92,33 @@ def run_arima_its(
     pre = y[:intervention_idx]
     post = y[intervention_idx:]
 
-    model = ARIMA(pre, order=order)
-    fitted = model.fit()
+    if order is None:
+        if n > 5000:
+            selected_order = _select_arima_order(pre, max_p=2, max_d=1, max_q=2)
+        elif len(pre) > 1000:
+            selected_order = _select_arima_order_fast(pre)
+        else:
+            selected_order = _select_arima_order(pre)
+        logger.info(f"Auto-ARIMA selected order {selected_order}")
+    else:
+        selected_order = order
+
+    model = ARIMA(pre, order=selected_order)
+    try:
+        fitted = model.fit()
+    except ValueError as e:
+        raise ValueError(
+            f"ARIMA model fitting failed. The data may be non-stationary or too short. "
+            f"Try a different intervention date or method. Details: {e}"
+        )
+    except Exception as e:
+        raise ValueError(
+            f"ARIMA model fitting failed with unexpected error: {e}"
+        )
 
     forecast = fitted.get_forecast(steps=len(post))
     predicted_mean = np.asarray(forecast.predicted_mean).flatten()
-    raw_ci = forecast.conf_int(alpha=0.05)
+    raw_ci = forecast.conf_int(alpha=DEFAULT_CI_ALPHA)
     forecast_ci = np.asarray(raw_ci)
 
     if forecast_ci.ndim == 1:
@@ -55,9 +133,13 @@ def run_arima_its(
     post_predicted = predicted_mean
 
     effect = float(np.mean(post_actual - post_predicted))
-    effect_pct = float(
-        np.mean((post_actual - post_predicted) / (np.abs(post_predicted) + 1e-10)) * 100
-    )
+    abs_predicted = np.abs(post_predicted)
+    mask = abs_predicted > 1e-6
+    if mask.any():
+        effect_pct = float(np.mean((post_actual[mask] - post_predicted[mask]) / abs_predicted[mask]) * 100)
+    else:
+        pre_mean = float(np.mean(y[:intervention_idx])) if intervention_idx > 0 else 1.0
+        effect_pct = float(effect / (abs(pre_mean) + 1e-10) * 100)
 
     ci_lower = float(np.mean(forecast_ci[:, 0]))
     ci_upper = float(np.mean(forecast_ci[:, 1]))
@@ -76,6 +158,8 @@ def run_arima_its(
 
     residuals = y - fitted_all
 
+    ljung_box_pvalue, residuals_ok = _check_residuals(fitted.resid)
+
     return ITSResult(
         effect=effect,
         effect_pct=effect_pct,
@@ -87,4 +171,8 @@ def run_arima_its(
         residuals=residuals,
         observed=y,
         intervention_idx=intervention_idx,
+        arima_order=selected_order,
+        aic=float(fitted.aic),
+        ljung_box_pvalue=ljung_box_pvalue,
+        residuals_ok=residuals_ok,
     )

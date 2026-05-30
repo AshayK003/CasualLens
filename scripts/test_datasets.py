@@ -1,5 +1,7 @@
 import sys
-sys.path.insert(0, ".")
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 from src.data.loader import load_dataset, get_available_datasets

@@ -1,0 +1,178 @@
+{
+  "delhi_aqi": {
+    "label": "Delhi Air Quality (PM2.5, 2015-2024)",
+    "description": "Daily PM2.5 concentrations. Test the 2020 lockdown effect.",
+    "date_col": "date",
+    "metric_col": "pm25",
+    "intervention_date": "2020-03-25",
+    "frequency": "daily",
+    "ground_truth": {
+      "effect_size": -40.0,
+      "effect_direction": "decrease",
+      "effect_duration": "60 days (transient)",
+      "expected_effect_range": [
+        -55,
+        -25
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.05
+      ],
+      "notes": "COVID lockdown caused immediate PM2.5 drop, recovered after 60 days"
+    }
+  },
+  "gst_revenue": {
+    "label": "India GST Revenue (Monthly, 2016-2023)",
+    "description": "Monthly GST collections. Test the GST implementation effect.",
+    "date_col": "month",
+    "metric_col": "revenue_cr",
+    "intervention_date": "2017-07-01",
+    "frequency": "monthly",
+    "ground_truth": {
+      "effect_size": 8000.0,
+      "effect_direction": "increase",
+      "effect_duration": "permanent",
+      "expected_effect_range": [
+        4000,
+        15000
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.05
+      ],
+      "notes": "GST implementation caused permanent revenue level shift"
+    }
+  },
+  "hospital_admissions": {
+    "label": "Hospital Admissions \u2014 Influenza (Weekly, 2018-2023)",
+    "description": "Weekly flu admissions. Test the vaccine rollout effect.",
+    "date_col": "date",
+    "metric_col": "admissions",
+    "intervention_date": "2021-01-01",
+    "frequency": "weekly",
+    "ground_truth": {
+      "effect_size": -30.0,
+      "effect_direction": "decrease",
+      "effect_duration": "permanent (gradual 8-week ramp)",
+      "expected_effect_range": [
+        -50,
+        -10
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.1
+      ],
+      "notes": "Vaccine rollout gradually reduced admissions over 8 weeks"
+    }
+  },
+  "electricity_demand": {
+    "label": "Electricity Demand (Hourly, 2022-2023)",
+    "description": "Hourly electricity demand. Test time-of-use pricing effect.",
+    "date_col": "datetime",
+    "metric_col": "demand_mwh",
+    "intervention_date": "2023-06-01",
+    "frequency": "hourly",
+    "ground_truth": {
+      "effect_size": -40.0,
+      "effect_direction": "decrease",
+      "effect_duration": "permanent (peak hours only)",
+      "expected_effect_range": [
+        -80,
+        -10
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.05
+      ],
+      "notes": "Time-of-use pricing reduced peak-hour demand by 8%"
+    }
+  },
+  "crime_rates": {
+    "label": "Crime Rates \u2014 Monthly (2015-2023)",
+    "description": "Monthly crime incidents. Test the community policing effect.",
+    "date_col": "date",
+    "metric_col": "incidents",
+    "intervention_date": "2020-01-01",
+    "frequency": "monthly",
+    "ground_truth": {
+      "effect_size": -12.0,
+      "effect_direction": "decrease",
+      "effect_duration": "permanent",
+      "expected_effect_range": [
+        -25,
+        -3
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.1
+      ],
+      "notes": "Community policing program reduced monthly incidents"
+    }
+  },
+  "student_scores": {
+    "label": "Student Test Scores (Annual, 1984-2023)",
+    "description": "Annual average test scores. Test the new curriculum effect.",
+    "date_col": "year",
+    "metric_col": "score",
+    "intervention_date": "2019-01-01",
+    "frequency": "yearly",
+    "ground_truth": {
+      "effect_size": 5.0,
+      "effect_direction": "increase",
+      "effect_duration": "permanent",
+      "expected_effect_range": [
+        1,
+        10
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.2
+      ],
+      "notes": "New curriculum raised average scores by 5 points"
+    }
+  },
+  "traffic_accidents": {
+    "label": "Traffic Accidents (Daily, 2019-2023)",
+    "description": "Daily traffic accidents. Test the roundabout installation effect.",
+    "date_col": "date",
+    "metric_col": "accidents",
+    "intervention_date": "2021-06-01",
+    "frequency": "daily",
+    "ground_truth": {
+      "effect_size": -3.0,
+      "effect_direction": "decrease",
+      "effect_duration": "permanent",
+      "expected_effect_range": [
+        -6,
+        -1
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.05
+      ],
+      "notes": "Roundabout installation reduced daily accidents"
+    }
+  },
+  "website_sessions": {
+    "label": "Website Sessions (Daily, 2022-2023)",
+    "description": "Daily website sessions. Test the marketing campaign effect.",
+    "date_col": "date",
+    "metric_col": "sessions",
+    "intervention_date": "2023-03-01",
+    "frequency": "daily",
+    "ground_truth": {
+      "effect_size": 500.0,
+      "effect_direction": "increase",
+      "effect_duration": "permanent (gradual 30-day ramp)",
+      "expected_effect_range": [
+        200,
+        800
+      ],
+      "expected_p_value_range": [
+        0.0,
+        0.05
+      ],
+      "notes": "Marketing campaign gradually increased sessions over 30 days"
+    }
+  }
+}

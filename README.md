@@ -68,18 +68,28 @@ CausalLens/
 │   │   └── placebo.py      # Sensitivity tests
 │   ├── data/
 │   │   ├── loader.py       # CSV and dataset loading
-│   │   └── datasets/       # Pre-loaded Indian datasets
-│   └── reports/
-│       ├── plots.py        # Counterfactual charts
-│       ├── summary.py      # Plain-language summaries
-│       └── pdf_export.py   # PDF report generator
-├── tests/                  # 32 tests
+│   │   ├── preprocessor.py # Data cleaning and column detection
+│   │   └── datasets/       # Pre-loaded policy datasets
+│   ├── reports/
+│   │   ├── plots.py        # Counterfactual charts
+│   │   ├── summary.py      # Plain-language summaries
+│   │   └── pdf_export.py   # PDF report generator
+│   └── utils/
+│       ├── validators.py   # Input validation
+│       ├── formatters.py   # Number/date formatting
+│       └── constants.py    # Shared thresholds
+├── tests/                  # 85+ tests
+├── .github/workflows/      # CI (pytest on push/PR)
 └── requirements.txt
 ```
 
 ## Testing
 
 ```bash
+# Fast tests only (~30s)
+python -m pytest tests/ -v -m "not slow"
+
+# Full suite including dataset ground-truth checks (~4 min)
 python -m pytest tests/ -v
 ```
 
@@ -108,6 +118,7 @@ streamlit run app.py
 | scipy | Statistical tests |
 | reportlab | PDF generation |
 | matplotlib | PDF chart rendering |
+| openpyxl | Excel file upload support |
 
 ## Methodology
 

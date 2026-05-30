@@ -24,13 +24,13 @@ def detect_date_column(df: pd.DataFrame) -> str | None:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             return col
     for col in df.columns:
-        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
-            try:
-                parsed = pd.to_datetime(df[col], errors="coerce")
-                if parsed.notna().sum() > len(df) * 0.5:
-                    return col
-            except Exception:
-                continue
+        try:
+            series = df[col].astype(str) if not pd.api.types.is_string_dtype(df[col]) else df[col]
+            parsed = pd.to_datetime(series, errors="coerce")
+            if parsed.notna().sum() > len(df) * 0.5:
+                return col
+        except Exception:
+            continue
     return None
 
 
@@ -43,13 +43,13 @@ def detect_numeric_columns(df: pd.DataFrame, exclude: list[str] | None = None) -
         if pd.api.types.is_numeric_dtype(df[col]):
             numeric_cols.append(col)
             continue
-        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
-            try:
-                converted = pd.to_numeric(df[col], errors="coerce")
-                if converted.notna().sum() > len(df) * 0.3:
-                    numeric_cols.append(col)
-            except Exception:
-                continue
+        try:
+            cleaned = df[col].astype(str).str.replace(r"[^\d.\-]", "", regex=True)
+            converted = pd.to_numeric(cleaned, errors="coerce")
+            if converted.notna().sum() > len(df) * 0.5:
+                numeric_cols.append(col)
+        except Exception:
+            continue
     return numeric_cols
 
 
@@ -313,6 +313,7 @@ def preprocess_data(
         if date_col:
             report.warnings.append(f"Auto-detected date column: '{date_col}'")
 
+    date_constructed = False
     if date_col and date_col in df.columns:
         df, steps = parse_dates(df, date_col)
         report.steps_applied.extend(steps)
@@ -323,15 +324,23 @@ def preprocess_data(
                 f"Date column '{date_col}' has too few valid dates ({n_dt}/{len(df)}). "
                 "Attempting to construct date from year/month columns."
             )
-            df_restored = df.copy()
-            if "__constructed_date" in df_restored.columns:
-                df_restored = df_restored.drop(columns=["__constructed_date"])
+            df_restored = df.drop(columns=[date_col])
             df_constructed, new_date_col, construct_steps = try_construct_date_from_year_month(df_restored)
             report.steps_applied.extend(construct_steps)
             if new_date_col:
                 date_col = new_date_col
                 df = df_constructed
+                date_constructed = True
                 report.warnings.append(f"Using constructed date column: '{date_col}'")
+
+    if date_col is None and not date_constructed:
+        df_constructed, new_date_col, construct_steps = try_construct_date_from_year_month(df)
+        report.steps_applied.extend(construct_steps)
+        if new_date_col:
+            date_col = new_date_col
+            df = df_constructed
+            date_constructed = True
+            report.warnings.append("Constructed date from year/month columns")
 
     if metric_col is None:
         exclude = [date_col] if date_col else []

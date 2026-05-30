@@ -1,4 +1,7 @@
+from unittest.mock import MagicMock, patch
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.core.bsts import run_bsts
@@ -7,8 +10,8 @@ from src.core.placebo import run_placebo_test
 
 def _bsts_works() -> bool:
     try:
-        from causalimpact import CausalImpact
         import pandas as pd
+        from causalimpact import CausalImpact
 
         y = np.concatenate([np.ones(50) * 10, np.ones(50) * 15])
         data = pd.DataFrame({"y": y})
@@ -39,17 +42,37 @@ class TestBSTS:
         assert len(result.observed) == n
         assert result.intervention_idx == 70
 
-    def test_bsts_gracefully_handles_fitting_failure(self):
+    def test_bsts_raises_on_fitting_failure(self):
         np.random.seed(42)
         n = 100
         y = 50 + np.random.randn(n)
 
-        result = run_bsts(y, intervention_idx=70)
+        with pytest.raises(RuntimeError, match="BSTS"):
+            run_bsts(y, intervention_idx=70)
 
-        assert len(result.counterfactual) == n
-        assert len(result.observed) == n
-        assert isinstance(result.effect, float)
-        assert isinstance(result.p_value, float)
+    def test_bsts_pvalue_fallback_when_ci_present(self):
+        np.random.seed(42)
+        n = 100
+        y = 50 + np.random.normal(0, 2, n)
+        y[70:] += 10
+
+        class ModelDict(dict):
+            def __getattr__(self, name):
+                return self[name]
+
+        mock_ci = MagicMock()
+        mock_ci.model = ModelDict(predicted_mean=np.full(n, 50.0))
+        mock_ci.inferences = pd.DataFrame({
+            "abs_effect_lower": [-1.0],
+            "abs_effect_upper": [1.0],
+        })
+
+        with patch("causalimpact.CausalImpact", return_value=mock_ci):
+            result = run_bsts(y, intervention_idx=70)
+
+        assert not np.isnan(result.p_value)
+        assert not np.isnan(result.ci_lower)
+        assert not np.isnan(result.ci_upper)
 
 
 class TestPlacebo:
@@ -60,12 +83,12 @@ class TestPlacebo:
         y = 50 + 0.5 * t + np.random.normal(0, 2, n)
         y[70:] += 10
 
-        result = run_placebo_test(y, real_intervention_idx=70, n_placebos=3)
+        result = run_placebo_test(y, real_intervention_idx=70, n_placebos=10)
 
         assert "real_effect" in result
         assert "placebo_effects" in result
         assert "p_value" in result
-        assert len(result["placebo_effects"]) <= 3
+        assert len(result["placebo_effects"]) <= 10
 
     def test_placebo_with_short_series(self):
         np.random.seed(42)
@@ -79,5 +102,5 @@ class TestPlacebo:
         y = 50 + np.random.normal(0, 0.1, n)
         y[70:] += 50
 
-        result = run_placebo_test(y, real_intervention_idx=70, n_placebos=5)
+        result = run_placebo_test(y, real_intervention_idx=70, n_placebos=10)
         assert result["is_real_effect_extreme"] is True

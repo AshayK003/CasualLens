@@ -1,5 +1,5 @@
-from src.reports.summary import generate_summary
 from src.reports.plots import build_counterfactual_plot
+from src.reports.summary import generate_summary
 
 
 class TestSummary:

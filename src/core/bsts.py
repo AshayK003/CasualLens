@@ -8,6 +8,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["run_bsts", "BSTSResult"]
+
 
 @dataclass
 class BSTSResult:
@@ -28,22 +30,36 @@ def run_bsts(
 ) -> BSTSResult:
     try:
         from causalimpact import CausalImpact
-    except ImportError:
-        raise ImportError(
-            "causalimpact package not installed. "
-            "Run: pip install causalimpact"
+        ci = CausalImpact(
+            pd.DataFrame({"y": y}).assign(index=pd.RangeIndex(len(y))),
+            [0, intervention_idx - 1],
+            [intervention_idx, len(y) - 1],
+            model_args={"niter": 2000},
         )
+    except ImportError:
+        raise RuntimeError(
+            "causalimpact package is not installed. "
+            "Install it with: pip install causalimpact"
+        )
+    except Exception as e:
+        raise RuntimeError(f"BSTS model fitting failed: {e}")
 
     n = len(y)
-    pre_period = [0, intervention_idx - 1]
-    post_period = [intervention_idx, n - 1]
-
-    data = pd.DataFrame({"y": y})
-    data.index = pd.RangeIndex(n)
-
-    ci = CausalImpact(data, pre_period, post_period, model_args={"niter": 2000})
-
     post_actual = y[intervention_idx:]
+
+    # Detect broken causalimpact (empty model dict or None inferences)
+    model_broken = (
+        not isinstance(ci.model, dict)
+        or not ci.model
+        or ci.inferences is None
+    )
+
+    if model_broken:
+        raise RuntimeError(
+            "BSTS model failed to fit properly on this system. "
+            "The causalimpact package may be incompatible with your Python/numpy version. "
+            "Try using the ARIMA method instead."
+        )
 
     try:
         post_predicted = np.asarray(ci.model.predicted_mean).flatten()
@@ -53,37 +69,49 @@ def run_bsts(
             post_predicted = np.pad(
                 post_predicted, (0, len(post_actual) - len(post_predicted))
             )
-    except Exception:
-        post_predicted = np.full(len(post_actual), np.mean(post_actual))
+    except Exception as e:
+        raise RuntimeError(f"BSTS prediction extraction failed: {e}")
 
     effect = float(np.mean(post_actual - post_predicted))
-    effect_pct = float(
-        np.mean(
-            (post_actual - post_predicted) / (np.abs(post_predicted) + 1e-10)
-        )
-        * 100
-    )
+    abs_predicted = np.abs(post_predicted)
+    mask = abs_predicted > 1e-6
+    if mask.any():
+        effect_pct = float(np.mean((post_actual[mask] - post_predicted[mask]) / abs_predicted[mask]) * 100)
+    else:
+        pre_mean = float(np.mean(y[:intervention_idx])) if intervention_idx > 0 else 1.0
+        effect_pct = float(effect / (abs(pre_mean) + 1e-10) * 100)
 
-    ci_lower = effect - 5.0
-    ci_upper = effect + 5.0
-    p_value = 0.05
+    ci_lower = np.nan
+    ci_upper = np.nan
+    p_value = np.nan
 
     try:
         inferences = ci.inferences
         if inferences is not None and hasattr(inferences, "columns"):
             if "posterior_tail_area" in inferences.columns:
                 p_value = float(inferences["posterior_tail_area"].iloc[0])
-            elif "abs_effect_lower" in inferences.columns:
-                lower = float(inferences["abs_effect_lower"].mean())
-                upper = float(inferences["abs_effect_upper"].mean())
-                ci_lower = lower
-                ci_upper = upper
-                if lower > 0 or upper < 0:
-                    p_value = 0.01
-                else:
-                    p_value = 0.10
+            elif "abs_effect" in inferences.columns:
+                p_value = float(np.mean(np.abs(inferences["abs_effect"]) >= 0))
+
+            if "abs_effect_lower" in inferences.columns and "abs_effect_upper" in inferences.columns:
+                ci_lower = float(inferences["abs_effect_lower"].mean())
+                ci_upper = float(inferences["abs_effect_upper"].mean())
     except Exception as e:
         logger.warning(f"Could not extract BSTS inferences: {e}")
+
+    se = float(np.std(post_actual - post_predicted) / np.sqrt(len(post_actual)))
+
+    if np.isnan(ci_lower) or np.isnan(ci_upper):
+        ci_lower = effect - 1.96 * se
+        ci_upper = effect + 1.96 * se
+
+    if np.isnan(p_value):
+        if se > 0:
+            from scipy import stats
+            t_stat = effect / se
+            p_value = float(2 * (1 - stats.t.cdf(abs(t_stat), df=len(post_actual) - 1)))
+        else:
+            p_value = 1.0
 
     counterfactual_full = np.zeros(n)
     try:

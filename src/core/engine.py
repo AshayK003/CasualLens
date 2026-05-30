@@ -5,13 +5,17 @@ from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
+import pandas as pd
 
-from .arima_its import ITSResult, run_arima_its
+from ..utils.constants import SIGNIFICANCE_LEVEL
 from ..utils.validators import (
     validate_dataframe,
     validate_intervention_date,
     validate_series_length,
 )
+from .arima_its import run_arima_its
+
+__all__ = ["causal_effect", "Method", "CausalResult"]
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +42,24 @@ class CausalResult:
     dates: list[str]
     n_pre: int
     n_post: int
+    arima_order: tuple[int, int, int] | None = None
+    aic: float | None = None
+    ljung_box_pvalue: float | None = None
+    residuals_ok: bool | None = None
 
 
 def causal_effect(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     date_col: str,
     metric_col: str,
     intervention_date: str,
     method: Method = Method.ARIMA,
 ) -> CausalResult:
-    import pandas as pd
-
-    date_col, metric_col = validate_dataframe(df)
+    if date_col not in df.columns:
+        # fall back to auto-detection if passed column doesn't exist
+        detected_date, detected_metric = validate_dataframe(df)
+        date_col = detected_date
+        metric_col = detected_metric
 
     df = df.copy()
 
@@ -74,8 +84,17 @@ def causal_effect(
     dates = df[date_col].values
     y = df[metric_col].values
 
+    dates_pd = pd.to_datetime(dates)
+    # Deduplicate data if dates are not unique
+    if not dates_pd.is_unique:
+        logger.warning("Duplicate dates detected. Aggregating data by date.")
+        df = df.groupby(date_col)[metric_col].mean().reset_index()
+        dates_pd = pd.DatetimeIndex(df[date_col]).sort_values()
+        dates = df[date_col].values
+        y = df[metric_col].values
+
     intervention_idx = validate_intervention_date(
-        pd.DatetimeIndex(dates), intervention_date
+        dates_pd, intervention_date
     )
     validate_series_length(y)
 
@@ -88,7 +107,7 @@ def causal_effect(
             ci_lower=arima_result.ci_lower,
             ci_upper=arima_result.ci_upper,
             p_value=arima_result.p_value,
-            significant=arima_result.p_value < 0.05,
+            significant=arima_result.p_value < SIGNIFICANCE_LEVEL,
             direction="increase" if arima_result.effect > 0 else "decrease",
             counterfactual=arima_result.counterfactual,
             fitted_values=arima_result.fitted_values,
@@ -97,10 +116,17 @@ def causal_effect(
             dates=[str(d)[:10] for d in dates],
             n_pre=intervention_idx,
             n_post=len(y) - intervention_idx,
+            arima_order=arima_result.arima_order,
+            aic=arima_result.aic,
+            ljung_box_pvalue=arima_result.ljung_box_pvalue,
+            residuals_ok=arima_result.residuals_ok,
         )
     elif method == Method.BSTS:
         from .bsts import run_bsts
-        bsts_result = run_bsts(y, intervention_idx)
+        try:
+            bsts_result = run_bsts(y, intervention_idx)
+        except RuntimeError as e:
+            raise ValueError(f"BSTS analysis failed: {e}")
         result = CausalResult(
             method="bsts",
             effect=bsts_result.effect,
@@ -108,7 +134,7 @@ def causal_effect(
             ci_lower=bsts_result.ci_lower,
             ci_upper=bsts_result.ci_upper,
             p_value=bsts_result.p_value,
-            significant=bsts_result.p_value < 0.05,
+            significant=bsts_result.p_value < SIGNIFICANCE_LEVEL,
             direction="increase" if bsts_result.effect > 0 else "decrease",
             counterfactual=bsts_result.counterfactual,
             fitted_values=bsts_result.fitted_values,
