@@ -3,9 +3,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pandas as pd
-from src.data.loader import load_dataset, get_available_datasets
-from src.core.engine import causal_effect, Method
+from src.core.engine import Method, causal_effect
+from src.data.loader import get_available_datasets, load_dataset
 from src.utils.validators import validate_dataframe
 
 print("=== Testing Pre-loaded Datasets ===\n")
@@ -31,7 +30,7 @@ for name, meta in datasets.items():
         print(f"  Effect: {result.effect:+.2f}")
         print(f"  p-value: {result.p_value:.4f}")
         print(f"  Significant: {result.significant}")
-        print(f"  PASSED\n")
+        print("  PASSED\n")
     except Exception as e:
         print(f"  FAILED: {e}\n")
 

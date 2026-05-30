@@ -78,8 +78,11 @@ CausalLens/
 │       ├── validators.py   # Input validation
 │       ├── formatters.py   # Number/date formatting
 │       └── constants.py    # Shared thresholds
-├── tests/                  # 85+ tests
-├── .github/workflows/      # CI (pytest on push/PR)
+├── tests/                  # 204 tests
+├── docs/
+│   ├── CONTRIBUTING.md     # Developer guide
+│   ├── METHODOLOGY.md      # Statistical methods explained
+│   └── DATASETS.md         # Dataset documentation
 └── requirements.txt
 ```
 
@@ -123,6 +126,10 @@ streamlit run app.py
 ## Methodology
 
 See `docs/METHODOLOGY.md` for a plain-English explanation of the statistical methods.
+
+## Contributing
+
+See `docs/CONTRIBUTING.md` for setup, testing, and contribution guidelines.
 
 ## License
 
