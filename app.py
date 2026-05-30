@@ -4,9 +4,11 @@ import logging
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from scipy import stats as sp_stats
 
 ROOT = Path(__file__).parent
 # Required for Streamlit Cloud which runs without pip install.
@@ -17,6 +19,7 @@ from src.core.engine import Method, causal_effect
 from src.core.placebo import run_placebo_test
 from src.data.loader import get_available_datasets, load_dataset, load_uploaded_file
 from src.data.preprocessor import detect_date_column, detect_numeric_columns, preprocess_data
+from src.reports.html_export import generate_html_report
 from src.reports.pdf_export import generate_pdf_report
 from src.reports.plots import build_counterfactual_plot
 from src.reports.summary import generate_summary
@@ -151,6 +154,8 @@ def run_cached_analysis(
     metric_col: str,
     intervention_date: str,
     method: str,
+    group_col: str | None = None,
+    treatment_unit: str | None = None,
 ) -> dict:
     _df = st.session_state.get("_df_cache")
     if _df is None:
@@ -161,6 +166,8 @@ def run_cached_analysis(
         metric_col=metric_col,
         intervention_date=intervention_date,
         method=Method(method),
+        group_col=group_col,
+        treatment_unit=treatment_unit,
     )
     return {
         "method": result.method,
@@ -182,6 +189,7 @@ def run_cached_analysis(
         "aic": result.aic,
         "ljung_box_pvalue": result.ljung_box_pvalue,
         "residuals_ok": result.residuals_ok,
+        "seasonal_order": result.seasonal_order,
     }
 
 
@@ -203,6 +211,40 @@ def _cached_pdf_report(
     method: str,
 ) -> bytes:
     return generate_pdf_report(
+        dates=list(dates),
+        observed=list(observed),
+        counterfactual=list(counterfactual),
+        intervention_idx=intervention_idx,
+        effect=effect,
+        effect_pct=effect_pct,
+        ci_lower=ci_lower,
+        ci_upper=ci_upper,
+        p_value=p_value,
+        significant=significant,
+        direction=direction,
+        metric_name=metric_col,
+        method=method,
+    )
+
+
+@st.cache_data
+def _cached_html_report(
+    result_hash: int,
+    dates: tuple[str, ...],
+    observed: tuple[float, ...],
+    counterfactual: tuple[float, ...],
+    intervention_idx: int,
+    effect: float,
+    effect_pct: float,
+    ci_lower: float,
+    ci_upper: float,
+    p_value: float,
+    significant: bool,
+    direction: str,
+    metric_col: str,
+    method: str,
+) -> str:
+    return generate_html_report(
         dates=list(dates),
         observed=list(observed),
         counterfactual=list(counterfactual),
@@ -331,8 +373,8 @@ def show_results(result_dict: dict, metric_col: str):
         )
 
     # ── Visualization + Summary tabs ──
-    tab_chart, tab_narrative, tab_summary, tab_export = st.tabs(
-        ["Chart", "Summary", "Statistical Details", "Export"]
+    tab_chart, tab_whatif, tab_subgroups, tab_narrative, tab_summary, tab_export = st.tabs(
+        ["Chart", "What-if", "Subgroups", "Summary", "Statistical Details", "Export"]
     )
 
     with tab_chart:
@@ -366,6 +408,218 @@ def show_results(result_dict: dict, metric_col: str):
 **Intervention line:** The date when the policy took effect. Data to the left is used to train the model; data to the right is where we measure the impact.
             """)
 
+    with tab_whatif:
+        st.markdown("### What-if Simulator")
+        st.markdown(
+            "Adjust the counterfactual assumptions and see how the results change."
+        )
+
+        cf_col1, cf_col2, cf_col3 = st.columns(3)
+        with cf_col1:
+            slope_adj = st.slider(
+                "Slope adjustment (%)",
+                min_value=-50, max_value=50, value=0, step=5,
+                key="whatif_slope",
+                help="Rotate the counterfactual trend up or down.",
+            )
+        with cf_col2:
+            level_shift = st.slider(
+                "Level shift (%)",
+                min_value=-100, max_value=100, value=0, step=5,
+                key="whatif_level",
+                help="Shift the counterfactual baseline up or down.",
+            )
+        with cf_col3:
+            ci_level = st.select_slider(
+                "Confidence interval",
+                options=[90, 95, 99],
+                value=95,
+                key="whatif_ci",
+            )
+
+        observed = np.array(result_dict["observed"])
+        counterfactual = np.array(result_dict["counterfactual"])
+        intervention_idx = result_dict["intervention_idx"]
+        pre_mean = float(np.mean(observed[:intervention_idx]))
+
+        adjusted_cf = counterfactual.copy()
+        post_cf = adjusted_cf[intervention_idx:]
+        n_post = len(post_cf)
+
+        slope_offset = np.linspace(0, slope_adj / 100 * pre_mean * 0.5, n_post)
+        level_offset = level_shift / 100 * pre_mean
+        adjusted_cf[intervention_idx:] = post_cf + slope_offset + level_offset
+
+        post_actual = observed[intervention_idx:]
+        adjusted_effect = float(np.mean(post_actual - adjusted_cf[intervention_idx:]))
+
+        abs_cf = np.abs(adjusted_cf[intervention_idx:])
+        mask = abs_cf > 1e-6
+        if mask.any():
+            adjusted_effect_pct = float(np.mean(
+                (post_actual[mask] - adjusted_cf[intervention_idx:][mask]) / abs_cf[mask]
+            ) * 100)
+        else:
+            adjusted_effect_pct = float(adjusted_effect / (abs(pre_mean) + 1e-10) * 100)
+
+        se = (result_dict["ci_upper"] - result_dict["ci_lower"]) / (2 * 1.96)
+        ci_multiplier = {90: 1.645, 95: 1.96, 99: 2.576}.get(ci_level, 1.96)
+        adjusted_ci_lower = adjusted_effect - ci_multiplier * se
+        adjusted_ci_upper = adjusted_effect + ci_multiplier * se
+
+        if se > 0:
+            t_stat = adjusted_effect / se
+            adjusted_p_value = float(2 * (1 - sp_stats.t.cdf(abs(t_stat), df=len(post_actual) - 1)))
+        else:
+            adjusted_p_value = 1.0
+
+        adjusted_significant = adjusted_p_value < 0.05
+
+        whatif_fig = build_counterfactual_plot(
+            dates=result_dict["dates"],
+            observed=result_dict["observed"],
+            counterfactual=adjusted_cf.tolist(),
+            intervention_idx=intervention_idx,
+            ci_lower=[adjusted_ci_lower] * len(result_dict["dates"]),
+            ci_upper=[adjusted_ci_upper] * len(result_dict["dates"]),
+        )
+        st.plotly_chart(whatif_fig, use_container_width=True)
+
+        w_col1, w_col2, w_col3, w_col4 = st.columns(4)
+        with w_col1:
+            st.metric("Adjusted Effect", f"{adjusted_effect:+.2f}",
+                      delta=f"{adjusted_effect_pct:+.1f}%")
+        with w_col2:
+            st.metric("p-value", f"{adjusted_p_value:.4f}")
+        with w_col3:
+            sig_color = "normal" if adjusted_significant else "off"
+            st.metric("Significant", "Yes" if adjusted_significant else "No",
+                      delta_color=sig_color)
+        with w_col4:
+            st.metric(f"{ci_level}% CI",
+                      f"[{adjusted_ci_lower:.2f}, {adjusted_ci_upper:.2f}]")
+
+        if slope_adj != 0 or level_shift != 0 or ci_level != 95:
+            original_sig = result_dict["significant"]
+            if adjusted_significant != original_sig:
+                if adjusted_significant:
+                    st.success(
+                        "**Note:** The adjusted counterfactual makes the effect statistically significant."
+                    )
+                else:
+                    st.warning(
+                        "**Note:** The adjusted counterfactual makes the effect NOT statistically significant."
+                    )
+
+    with tab_subgroups:
+        st.markdown("### Subgroup Analysis")
+        st.markdown(
+            "Split the data into segments and compare how the effect varies across groups."
+        )
+
+        from src.core.subgroup import MIN_SEGMENT_SIZE, run_subgroup_analysis
+
+        segment_by = st.selectbox(
+            "Segment data by",
+            options=["quarter", "month", "weekday", "value_bin"],
+            format_func=lambda x: {
+                "quarter": "Quarter",
+                "month": "Month",
+                "weekday": "Day of Week",
+                "value_bin": "Value Quartile",
+            }.get(x, x),
+            key="subgroup_segment",
+        )
+
+        if st.button("Run Subgroup Analysis", use_container_width=True, key="run_subgroup_btn"):
+            with st.spinner("Running subgroup analysis..."):
+                try:
+                    raw_df = st.session_state.get("df_raw")
+                    sub_date_col = st.session_state.get("date_col", "date")
+                    sub_metric_col = st.session_state.get("metric_col", metric_col)
+                    intervention_str = result_dict["dates"][result_dict["intervention_idx"]]
+                    subgroup_results = run_subgroup_analysis(
+                        df=raw_df,
+                        date_col=sub_date_col,
+                        metric_col=sub_metric_col,
+                        intervention_date=intervention_str,
+                        method=Method(result_dict["method"]),
+                        segment_by=segment_by,
+                    )
+                    st.session_state["subgroup_results"] = subgroup_results
+                except Exception as e:
+                    st.error(f"Subgroup analysis failed: {e}")
+                    subgroup_results = []
+
+        subgroup_results = st.session_state.get("subgroup_results", [])
+        if subgroup_results:
+            import plotly.graph_objects as go
+
+            segments = [r.segment for r in subgroup_results]
+            effects = [r.effect for r in subgroup_results]
+            ci_lowers = [r.ci_lower for r in subgroup_results]
+            ci_uppers = [r.ci_upper for r in subgroup_results]
+            significant = [r.significant for r in subgroup_results]
+
+            fig = go.Figure()
+            colors = ["#22c55e" if sig else "#94a3b8" for sig in significant]
+            fig.add_trace(go.Bar(
+                x=segments,
+                y=effects,
+                name="Effect Size",
+                marker_color=colors,
+                error_y=dict(
+                    type="data",
+                    symmetric=False,
+                    array=[u - e for u, e in zip(ci_uppers, effects, strict=True)],
+                    arrayminus=[e - lo for e, lo in zip(effects, ci_lowers, strict=True)],
+                ),
+            ))
+            fig.add_hline(y=0, line=dict(color="#94a3b8", width=1, dash="dash"))
+            fig.update_layout(
+                xaxis_title="Segment",
+                yaxis_title="Estimated Effect",
+                height=350,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(tickfont=dict(color="#94a3b8")),
+                yaxis=dict(gridcolor="rgba(148,163,184,0.1)", tickfont=dict(color="#94a3b8")),
+                margin=dict(l=0, r=0, t=10, b=0),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            table_data = []
+            for r in subgroup_results:
+                table_data.append({
+                    "Segment": r.segment,
+                    "Effect": f"{r.effect:+.2f}",
+                    "Effect %": f"{r.effect_pct:+.1f}%",
+                    "p-value": f"{r.p_value:.4f}",
+                    "Significant": "Yes" if r.significant else "No",
+                    "n": r.n_points,
+                })
+            st.dataframe(table_data, use_container_width=True)
+
+            raw_df = st.session_state.get("df_raw", pd.DataFrame())
+            if not raw_df.empty:
+                sub_date_col = st.session_state.get("date_col", "date")
+                all_segments = raw_df.copy()
+                if segment_by == "quarter":
+                    all_segments["_seg"] = all_segments[sub_date_col].dt.to_period("Q").astype(str)
+                elif segment_by == "month":
+                    all_segments["_seg"] = all_segments[sub_date_col].dt.to_period("M").astype(str)
+                elif segment_by == "weekday":
+                    all_segments["_seg"] = all_segments[sub_date_col].dt.day_name()
+                else:
+                    all_segments["_seg"] = "all"
+
+                skipped = []
+                for seg_name, grp in all_segments.groupby("_seg"):
+                    if len(grp) < MIN_SEGMENT_SIZE:
+                        skipped.append(f"{seg_name} ({len(grp)} rows)")
+                if skipped:
+                    st.caption(f"Skipped (fewer than {MIN_SEGMENT_SIZE} rows): {', '.join(skipped)}")
+
     with tab_narrative:
         narrative = _generate_narrative(result_dict, metric_col)
         st.markdown(narrative)
@@ -392,12 +646,15 @@ def show_results(result_dict: dict, metric_col: str):
             aic_str = _format_optional_float(result_dict.get("aic"))
             lb_pval = result_dict.get("ljung_box_pvalue")
             lb_pval_str = _format_optional_float(lb_pval, ".4f")
+            seasonal_order = result_dict.get("seasonal_order")
+            seasonal_str = str(seasonal_order) if seasonal_order else "N/A"
             with detail_col1:
                 st.markdown(f"""
 | Metric | Value |
 |--------|-------|
 | Method | `{result_dict['method'].upper()}` |
 | ARIMA Order | `{_format_arima_order(result_dict.get('arima_order'))}` |
+| Seasonal Order | `{seasonal_str}` |
 | AIC | `{aic_str}` |
 | Effect | `{effect:+.4f}` |
 | Effect % | `{effect_pct:+.2f}%` |
@@ -419,13 +676,13 @@ def show_results(result_dict: dict, metric_col: str):
     with tab_export:
         st.markdown("### Download Report")
         st.markdown(
-            "Export a PDF report with charts, statistics, and interpretation."
+            "Export a PDF or interactive HTML report with charts, statistics, and interpretation."
         )
 
-        if st.button("Generate PDF Report", use_container_width=True, key="generate_pdf_btn"):
-            st.session_state["pdf_requested"] = True
+        if st.button("Generate Reports", use_container_width=True, key="generate_reports_btn"):
+            st.session_state["reports_requested"] = True
 
-        if st.session_state.get("pdf_requested"):
+        if st.session_state.get("reports_requested"):
             result_hash = hash((
                 tuple(result_dict["dates"]),
                 tuple(result_dict["observed"]),
@@ -434,6 +691,7 @@ def show_results(result_dict: dict, metric_col: str):
                 result_dict["effect"],
                 result_dict["method"],
             ))
+
             with st.spinner("Generating PDF..."):
                 pdf_bytes = _cached_pdf_report(
                     result_hash,
@@ -452,13 +710,41 @@ def show_results(result_dict: dict, metric_col: str):
                     result_dict["method"],
                 )
 
-            st.download_button(
-                label="Download PDF Report",
-                data=pdf_bytes,
-                file_name="causal_impact_report.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
+            with st.spinner("Generating HTML..."):
+                html_str = _cached_html_report(
+                    result_hash,
+                    tuple(result_dict["dates"]),
+                    tuple(result_dict["observed"]),
+                    tuple(result_dict["counterfactual"]),
+                    result_dict["intervention_idx"],
+                    result_dict["effect"],
+                    result_dict["effect_pct"],
+                    result_dict["ci_lower"],
+                    result_dict["ci_upper"],
+                    result_dict["p_value"],
+                    result_dict["significant"],
+                    result_dict["direction"],
+                    metric_col,
+                    result_dict["method"],
+                )
+
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                st.download_button(
+                    label="Download PDF Report",
+                    data=pdf_bytes,
+                    file_name="causal_impact_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            with dl_col2:
+                st.download_button(
+                    label="Download HTML Report",
+                    data=html_str,
+                    file_name="causal_impact_report.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
 
         csv_data = pd.DataFrame({
             "date": result_dict["dates"],
@@ -619,10 +905,13 @@ def build_sidebar():
 
             method = st.selectbox(
                 "Method",
-                options=["arima", "bsts"],
+                options=["arima", "sarimax", "bsts", "did", "synthetic_control"],
                 format_func=lambda x: {
                     "arima": "ARIMA ITS (fast)",
+                    "sarimax": "SARIMAX (seasonal)",
                     "bsts": "Bayesian STS (slow, experimental)",
+                    "did": "Difference-in-Differences",
+                    "synthetic_control": "Synthetic Control",
                 }.get(x, x),
             )
 
@@ -630,10 +919,37 @@ def build_sidebar():
                 st.markdown("""
 **ARIMA ITS** (recommended) uses traditional time series forecasting. Best for most use cases. Results in seconds.
 
+**SARIMAX** extends ARIMA with seasonal components. Use this if your data has strong weekly or yearly patterns (e.g., electricity demand, flu admissions). Results in seconds.
+
 **Bayesian STS** is more flexible and handles complex seasonal patterns, but is slower. Results in 1-2 minutes. Experimental — may not work on all platforms.
+
+**Difference-in-Differences** compares a treatment group to a control group. Requires a CSV with a group column (treatment + control units). Best for policy evaluation with a clear comparison group.
+
+**Synthetic Control** constructs a weighted combination of control units as the counterfactual. Gold standard for policy evaluation when you have multiple control units. Requires a CSV with a unit column.
 
 When in doubt, use **ARIMA ITS**.
                 """)
+
+            group_col = None
+            treatment_unit = None
+            if method in ("did", "synthetic_control") and df is not None:
+                non_metric_cols = [c for c in df.columns if c != metric_col]
+                group_col = st.selectbox(
+                    "Group/Unit column",
+                    options=non_metric_cols,
+                    help="Column that identifies treatment vs control groups/units. Must NOT be the date column.",
+                )
+                if group_col:
+                    units = sorted(df[group_col].unique())
+                    if len(units) < 2:
+                        st.error("Need at least 2 distinct groups for this method.")
+                        group_col = None
+                    else:
+                        treatment_unit = st.selectbox(
+                            "Treatment unit",
+                            options=units,
+                            help="Which group/unit received the intervention.",
+                        )
 
             run_placebo = st.checkbox(
                 "Placebo sensitivity test",
@@ -649,7 +965,7 @@ When in doubt, use **ARIMA ITS**.
                 use_container_width=True,
             )
 
-            return df, date_col, metric_col, intervention_date, method, run_placebo, run_clicked, preprocess_report
+            return df, date_col, metric_col, intervention_date, method, run_placebo, run_clicked, preprocess_report, group_col, treatment_unit
 
         # ── Developer support link ──
         st.divider()
@@ -668,7 +984,7 @@ When in doubt, use **ARIMA ITS**.
             unsafe_allow_html=True,
         )
 
-        return None, None, None, None, None, None, False, None
+        return None, None, None, None, None, None, False, None, None, None
 
 
 # ─── Main ──────────────────────────────────────────────────────
@@ -689,6 +1005,8 @@ def main():
         run_placebo,
         run_clicked,
         preprocess_report,
+        group_col,
+        treatment_unit,
     ) = build_sidebar()
 
     # ── Empty state — Hero landing ──
@@ -780,6 +1098,7 @@ def main():
         st.session_state.pop("result", None)
         st.session_state.pop("placebo", None)
         st.session_state.pop("pdf_requested", None)
+        st.session_state.pop("reports_requested", None)
         intervention_str = intervention_date.strftime("%Y-%m-%d")
 
         with st.spinner("Running causal analysis..."):
@@ -787,7 +1106,8 @@ def main():
                 df_hash = int(pd.util.hash_pandas_object(df).sum())
                 st.session_state["_df_cache"] = df
                 result_dict = run_cached_analysis(
-                    df_hash, date_col, metric_col, intervention_str, method
+                    df_hash, date_col, metric_col, intervention_str, method,
+                    group_col, treatment_unit
                 )
                 if not result_dict:
                     return

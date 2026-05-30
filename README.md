@@ -2,7 +2,9 @@
 
 **Causal Impact Calculator** — Did this policy actually work?
 
-CausalLens estimates the causal effect of policy interventions on time series. Given an intervention date, it builds a counterfactual (what *would have happened* without the intervention), then compares it to observed data. Results include effect size, p-values, 95% confidence intervals, and a downloadable PDF report.
+CausalLens estimates the causal effect of policy interventions on time series. Given an intervention date, it builds a counterfactual (what *would have happened* without the intervention), then compares it to observed data. Results include effect size, p-values, 95% confidence intervals, and downloadable reports (PDF + interactive HTML).
+
+Supports 5 analysis methods: ARIMA ITS, SARIMAX (seasonal), Bayesian STS, Difference-in-Differences, and Synthetic Control.
 
 Designed for Streamlit Community Cloud free tier: CPU-only, 1GB RAM, zero-config deployment.
 
@@ -12,23 +14,27 @@ Designed for Streamlit Community Cloud free tier: CPU-only, 1GB RAM, zero-config
 app.py                        # Streamlit UI (thin — no business logic)
 src/
 ├── core/
-│   ├── engine.py             # causal_effect() — orchestrates analysis
-│   ├── arima_its.py          # ARIMA interrupted time series
+│   ├── engine.py             # causal_effect() — orchestrates all methods
+│   ├── arima_its.py          # ARIMA + SARIMAX interrupted time series
 │   ├── bsts.py               # Bayesian STS wrapper (Google CausalImpact)
+│   ├── did.py                # Difference-in-Differences (panel data)
+│   ├── synthetic_control.py  # Synthetic Control (pysyncon)
+│   ├── subgroup.py           # Subgroup analysis across segments
 │   └── placebo.py            # Sensitivity: reruns at fake intervention dates
 ├── data/
 │   ├── loader.py             # CSV/Excel upload, pre-loaded dataset registry
 │   ├── preprocessor.py       # Date detection, missing values, outlier removal
-│   └── datasets/             # 8 pre-loaded policy datasets (Delhi AQI, GST, etc.)
+│   └── datasets/             # 11 pre-loaded policy datasets
 ├── reports/
 │   ├── plots.py              # Plotly counterfactual chart (with optional CI shading)
 │   ├── summary.py            # Plain-language result summary
-│   └── pdf_export.py         # Matplotlib + ReportLab PDF
+│   ├── pdf_export.py         # Matplotlib + ReportLab PDF
+│   └── html_export.py        # Self-contained HTML with interactive Plotly charts
 └── utils/
     ├── constants.py          # SIGNIFICANCE_LEVEL=0.05, MIN_DATA_POINTS, etc.
     ├── formatters.py         # Number/CI/p-value formatting helpers
     └── validators.py         # DataFrame validation, intervention date checks
-tests/                        # 204 tests across 17 files
+tests/                        # 212+ tests across 17 files
 docs/
 ├── CONTRIBUTING.md           # Full developer guide
 ├── METHODOLOGY.md            # Statistical methods (plain English)
@@ -42,10 +48,16 @@ Upload CSV / select dataset
   → loader.py → raw DataFrame
     → preprocessor.py → clean DataFrame + PreprocessReport
       → engine.py → CausalResult (effect, p-value, CI, counterfactual)
-        ├── replots.py → Plotly chart (displayed in UI)
+        ├── plots.py → Plotly chart (displayed in UI)
         ├── summary.py → plain-text (displayed in UI)
         ├── pdf_export.py → PDF bytes (downloadable)
+        ├── html_export.py → interactive HTML (downloadable)
         └── placebo.py → sensitivity histogram (optional)
+
+Panel data methods (DiD, Synthetic Control):
+  CSV with group/unit column
+    → engine.py → DiDResult or SyntheticControlResult
+      └── UI shows unit weights, parallel trends, segment comparison
 ```
 
 ### Why this structure
@@ -193,10 +205,13 @@ Full guide in `docs/CONTRIBUTING.md`.
 
 ## Methods
 
-| Method | Speed | Use case |
-|--------|-------|----------|
-| **ARIMA ITS** | Seconds | Default. Works on any dataset with 30+ points. |
-| **Bayesian STS** | 1-2 min | Seasonal patterns, probabilistic CIs. Experimental. |
+| Method | Speed | Use case | Data format |
+|--------|-------|----------|-------------|
+| **ARIMA ITS** | Seconds | Default. Works on any dataset with 30+ points. | Single time series |
+| **SARIMAX** | Seconds | Data with weekly/yearly seasonality (electricity, flu). | Single time series |
+| **Bayesian STS** | 1-2 min | Probabilistic CIs, complex seasonality. Experimental. | Single time series |
+| **Difference-in-Differences** | Seconds | Policy evaluation with treatment + control groups. | Panel data (group column) |
+| **Synthetic Control** | 10-30s | Weighted combination of control units as counterfactual. | Panel data (unit column) |
 
 ### Key Concepts
 
@@ -205,14 +220,17 @@ Full guide in `docs/CONTRIBUTING.md`.
 - **p < 0.05**: The effect is unlikely to be due to random chance.
 - **95% CI**: Range containing the true effect with 95% probability. If it spans zero, the effect is uncertain.
 - **Placebo test**: Reruns analysis at fake dates. If the real effect exceeds 95% of placebo effects, the result is robust.
+- **What-if simulator**: Adjust counterfactual assumptions (slope, level, CI) to test sensitivity.
+- **Subgroup analysis**: Compare effect sizes across segments (quarter, month, weekday, value bins).
 
 ## Dependencies
 
 | Package | Role |
 |---------|------|
 | streamlit | UI framework |
-| statsmodels | ARIMA ITS model |
+| statsmodels | ARIMA ITS, SARIMAX, DiD regression |
 | causalimpact | Bayesian STS |
+| pysyncon | Synthetic Control |
 | pandas | Data manipulation |
 | plotly | Interactive charts |
 | scipy | Statistical tests |

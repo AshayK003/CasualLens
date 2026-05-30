@@ -8,13 +8,15 @@ Given a time series with a known intervention date (e.g., a new law, a lockdown,
 
 ### Why it exists
 
-Most causal impact tools require statistical expertise. CausalLens wraps ARIMA ITS and Bayesian STS in a Streamlit UI so non-technical users can run rigorous analyses, interpret results in plain language, and export PDF reports.
+Most causal impact tools require statistical expertise. CausalLens wraps ARIMA ITS, SARIMAX, Bayesian STS, Difference-in-Differences, and Synthetic Control in a Streamlit UI so non-technical users can run rigorous analyses, interpret results in plain language, and export reports.
 
 ### Key design decisions
 
 - **ARIMA ITS as default** — fast, reliable, works on all platforms. BSTS is optional and experimental.
+- **SARIMAX for seasonality** — automatic seasonal period detection for weekly/yearly patterns.
+- **Panel data methods** — DiD and Synthetic Control for treatment + control group analyses.
 - **Streamlit over Flask/Django** — zero-config UI, fast iteration, native dark mode.
-- **Pre-loaded datasets** — users can try the tool immediately without finding their own data.
+- **Pre-loaded datasets** — 11 datasets across healthcare, economics, climate, and more.
 - **Placebo tests** — sensitivity analysis to build confidence in results.
 - **CPU-only, 1GB RAM** — designed for Streamlit Community Cloud free tier.
 
@@ -26,23 +28,27 @@ Most causal impact tools require statistical expertise. CausalLens wraps ARIMA I
 app.py                        # Streamlit entry point (UI, state, layout)
 src/
 ├── core/
-│   ├── engine.py             # causal_effect() — main entry point for analysis
-│   ├── arima_its.py          # ARIMA interrupted time series implementation
+│   ├── engine.py             # causal_effect() — main entry point for all methods
+│   ├── arima_its.py          # ARIMA + SARIMAX interrupted time series
 │   ├── bsts.py               # Bayesian STS wrapper (Google CausalImpact)
+│   ├── did.py                # Difference-in-Differences (panel data)
+│   ├── synthetic_control.py  # Synthetic Control (pysyncon)
+│   ├── subgroup.py           # Subgroup analysis across segments
 │   └── placebo.py            # Sensitivity tests (run at fake intervention dates)
 ├── data/
 │   ├── loader.py             # Load CSV/Excel uploads + pre-loaded datasets
 │   ├── preprocessor.py       # Clean data, detect columns, handle missing values
-│   └── datasets/             # CSV files for pre-loaded examples
+│   └── datasets/             # 11 CSV files for pre-loaded examples
 ├── reports/
 │   ├── plots.py              # Plotly counterfactual charts
 │   ├── summary.py            # Plain-language result summaries
-│   └── pdf_export.py         # Matplotlib + ReportLab PDF generation
+│   ├── pdf_export.py         # Matplotlib + ReportLab PDF generation
+│   └── html_export.py        # Self-contained HTML with interactive Plotly charts
 └── utils/
     ├── constants.py          # SIGNIFICANCE_LEVEL, LARGE_DATASET_ROWS, etc.
     ├── formatters.py         # Number/date formatting helpers
     └── validators.py         # Input validation (dataframe, dates, series length)
-tests/                        # 204 tests across 17 files
+tests/                        # 212+ tests across 17 files
 ```
 
 ### Data flow
@@ -62,7 +68,13 @@ engine.py → CausalResult (effect, p-value, CI, counterfactual array)
         ├──► plots.py → Plotly figure (shown in Streamlit)
         ├──► summary.py → Plain-language text
         ├──► pdf_export.py → PDF bytes (download button)
+        ├──► html_export.py → Interactive HTML (download button)
         └──► placebo.py → Placebo test results (optional)
+
+Panel data methods (DiD, Synthetic Control):
+  CSV with group/unit column
+    → engine.py → DiDResult or SyntheticControlResult
+      └── UI shows unit weights, parallel trends, segment comparison
 ```
 
 ### Why this structure
@@ -289,7 +301,7 @@ Start-Process -WindowStyle Hidden -FilePath "streamlit" -ArgumentList "run app.p
 
 ### Counterfactual
 
-The counterfactual is a prediction of what *would have happened* if the intervention never occurred. It's estimated by fitting a model on pre-intervention data and forecasting forward.
+The counterfactual is a prediction of what *would have happened* if the intervention never occurred. For single-series methods (ARIMA, SARIMAX, BSTS), it's estimated by fitting a model on pre-intervention data and forecasting forward. For panel methods (DiD, Synthetic Control), it's built from the control group's observed trajectory.
 
 ### Effect size
 
@@ -306,6 +318,22 @@ The range within which the true effect likely falls. If the interval includes ze
 ### Placebo test
 
 Run the same analysis at multiple fake intervention dates. If the real effect is larger than 95% of placebo effects, the result is robust.
+
+### Difference-in-Differences
+
+Compares a treatment group to a control group. The ATT (Average Treatment Effect on Treated) is the difference in changes: `(treated_post - treated_pre) - (control_post - control_pre)`. Requires a panel dataset with a group column.
+
+### Synthetic Control
+
+Constructs a weighted combination of control units as the counterfactual. The weights are optimized to match the treated unit's pre-intervention trajectory. More transparent than ARIMA (weights are interpretable).
+
+### What-if simulator
+
+Adjusts the counterfactual assumptions (slope, level, CI) to test how sensitive the results are to different specifications.
+
+### Subgroup analysis
+
+Splits the data into segments (quarter, month, weekday, value bins) and runs the analysis on each segment separately. Identifies which subgroups were most/least affected.
 
 ---
 

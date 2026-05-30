@@ -8,6 +8,7 @@ import numpy as np
 from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from ..utils.constants import DEFAULT_CI_ALPHA
 
@@ -28,10 +29,11 @@ class ITSResult:
     residuals: np.ndarray
     observed: np.ndarray
     intervention_idx: int
-    arima_order: tuple[int, int, int]
+    arima_order: tuple[int, int, int] | tuple[int, int, int, int]
     aic: float
     ljung_box_pvalue: float
     residuals_ok: bool
+    seasonal_order: tuple[int, int, int, int] | None = None
 
 
 def _select_arima_order(
@@ -72,6 +74,55 @@ def _select_arima_order_fast(
     return _select_arima_order(y)
 
 
+def _infer_seasonal_period(n: int) -> int:
+    if n > 10000:
+        return 0
+    if n > 3000:
+        return 7
+    if n > 200:
+        return 12
+    if n > 50:
+        return 4
+    return 0
+
+
+def _select_seasonal_order(
+    y: np.ndarray,
+    s: int,
+) -> tuple[int, int, int, int]:
+    n = len(y)
+
+    if n > 5000:
+        return (0, 1, 1, s)
+
+    best_aic = np.inf
+    best_order = (0, 1, 1, s)
+
+    for P in range(2):
+        for Q in range(2):
+            if P == 0 and Q == 0:
+                continue
+            for D in range(2):
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        model = SARIMAX(
+                            y,
+                            order=(1, 1, 1),
+                            seasonal_order=(P, D, Q, s),
+                            enforce_stationarity=False,
+                            enforce_invertibility=False,
+                        )
+                        fitted = model.fit(disp=False, maxiter=30)
+                    if fitted.aic < best_aic:
+                        best_aic = fitted.aic
+                        best_order = (P, D, Q, s)
+                except Exception:
+                    continue
+
+    return best_order
+
+
 def _check_residuals(residuals: np.ndarray) -> tuple[float, bool]:
     n_lags = min(10, len(residuals) // 5)
     if n_lags < 1:
@@ -85,6 +136,8 @@ def run_arima_its(
     y: np.ndarray,
     intervention_idx: int,
     order: tuple[int, int, int] | None = None,
+    seasonal: bool = False,
+    seasonal_order: tuple[int, int, int, int] | None = None,
 ) -> ITSResult:
     y = np.asarray(y, dtype=float)
     n = len(y)
@@ -103,17 +156,43 @@ def run_arima_its(
     else:
         selected_order = order
 
-    model = ARIMA(pre, order=selected_order)
+    selected_seasonal = None
+    use_sarimax = False
+
+    if seasonal:
+        s = seasonal_order[3] if seasonal_order else _infer_seasonal_period(n)
+        if s > 0:
+            if seasonal_order is None:
+                selected_seasonal = _select_seasonal_order(pre, s)
+            else:
+                selected_seasonal = seasonal_order
+            use_sarimax = True
+            logger.info(
+                f"SARIMAX seasonal order {selected_seasonal} (period s={s})"
+            )
+
+    if use_sarimax:
+        model = SARIMAX(
+            pre,
+            order=selected_order,
+            seasonal_order=selected_seasonal,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+    else:
+        model = ARIMA(pre, order=selected_order)
+
     try:
-        fitted = model.fit()
+        fitted = model.fit(disp=False) if use_sarimax else model.fit()
     except ValueError as e:
         raise ValueError(
-            f"ARIMA model fitting failed. The data may be non-stationary or too short. "
+            f"{'SARIMAX' if use_sarimax else 'ARIMA'} model fitting failed. "
+            f"The data may be non-stationary or too short. "
             f"Try a different intervention date or method. Details: {e}"
         )
     except Exception as e:
         raise ValueError(
-            f"ARIMA model fitting failed with unexpected error: {e}"
+            f"{'SARIMAX' if use_sarimax else 'ARIMA'} model fitting failed: {e}"
         )
 
     forecast = fitted.get_forecast(steps=len(post))
@@ -175,4 +254,5 @@ def run_arima_its(
         aic=float(fitted.aic),
         ljung_box_pvalue=ljung_box_pvalue,
         residuals_ok=residuals_ok,
+        seasonal_order=selected_seasonal,
     )

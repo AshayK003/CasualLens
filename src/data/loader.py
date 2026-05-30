@@ -78,6 +78,30 @@ AVAILABLE_DATASETS = {
         "intervention_date": "2023-03-01",
         "frequency": "daily",
     },
+    "mask_mandates": {
+        "label": "Respiratory Illness Admissions (Monthly, 2016-2023)",
+        "description": "Monthly hospital admissions for respiratory illness. Test mask mandate effect.",
+        "date_col": "date",
+        "metric_col": "admissions",
+        "intervention_date": "2020-04-01",
+        "frequency": "monthly",
+    },
+    "interest_rates": {
+        "label": "Mortgage Applications (Monthly, 2019-2023)",
+        "description": "Monthly mortgage applications. Test interest rate hike effect.",
+        "date_col": "date",
+        "metric_col": "applications",
+        "intervention_date": "2022-03-01",
+        "frequency": "monthly",
+    },
+    "carbon_tax": {
+        "label": "Industrial CO2 Emissions (Quarterly, 2016-2023)",
+        "description": "Quarterly industrial CO2 emissions (kilotons). Test carbon tax effect.",
+        "date_col": "date",
+        "metric_col": "emissions_kt",
+        "intervention_date": "2019-01-01",
+        "frequency": "quarterly",
+    },
 }
 
 

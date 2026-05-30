@@ -427,6 +427,132 @@ def generate_website_sessions() -> tuple[pd.DataFrame, dict]:
     return df, meta
 
 
+def generate_mask_mandates() -> tuple[pd.DataFrame, dict]:
+    n_months = 12 * 7
+    dates = pd.date_range("2016-01-01", periods=n_months, freq="MS")
+
+    ts = TimeSeriesBuilder(n_months, seed=42)
+    ts.add_trend(slope=0.5, intercept=350)
+    ts.add_seasonality(period=12, amplitude=60, phase=np.pi)
+    ts.add_ar_noise(ar_params=[0.4], sigma=15)
+    values = ts.build()
+
+    mandate_idx = np.searchsorted(dates, pd.Timestamp("2020-04-01"))
+    ramp_up = 3
+    effect = -55
+    ramp = np.linspace(0, effect, ramp_up)
+    values[mandate_idx : mandate_idx + ramp_up] += ramp
+    values[mandate_idx + ramp_up :] += effect
+
+    values = np.clip(values, 100, 600)
+
+    df = pd.DataFrame(
+        {"date": dates.strftime("%Y-%m-%d"), "admissions": np.round(values, 0).astype(int)}
+    )
+
+    meta = {
+        "label": "Respiratory Illness Admissions (Monthly, 2016-2023)",
+        "description": "Monthly hospital admissions for respiratory illness. Test mask mandate effect.",
+        "date_col": "date",
+        "metric_col": "admissions",
+        "intervention_date": "2020-04-01",
+        "frequency": "monthly",
+        "ground_truth": {
+            "effect_size": -55.0,
+            "effect_direction": "decrease",
+            "effect_duration": "permanent (gradual 3-month ramp)",
+            "expected_effect_range": [-80, -30],
+            "expected_p_value_range": [0.0, 0.10],
+            "notes": "Mask mandates reduced respiratory admissions by ~15%",
+        },
+    }
+    return df, meta
+
+
+def generate_interest_rates() -> tuple[pd.DataFrame, dict]:
+    n_months = 12 * 5
+    dates = pd.date_range("2019-01-01", periods=n_months, freq="MS")
+
+    ts = TimeSeriesBuilder(n_months, seed=42)
+    ts.add_trend(slope=20, intercept=6000)
+    ts.add_seasonality(period=12, amplitude=400, phase=0)
+    ts.add_ar_noise(ar_params=[0.3], sigma=150)
+    values = ts.build()
+
+    hike_idx = np.searchsorted(dates, pd.Timestamp("2022-03-01"))
+    ramp_up = 6
+    effect = -1200
+    ramp = np.linspace(0, effect, ramp_up)
+    values[hike_idx : hike_idx + ramp_up] += ramp
+    values[hike_idx + ramp_up :] += effect
+
+    values = np.clip(values, 3000, 12000)
+
+    df = pd.DataFrame(
+        {"date": dates.strftime("%Y-%m-%d"), "applications": np.round(values, 0).astype(int)}
+    )
+
+    meta = {
+        "label": "Mortgage Applications (Monthly, 2019-2023)",
+        "description": "Monthly mortgage applications. Test interest rate hike effect.",
+        "date_col": "date",
+        "metric_col": "applications",
+        "intervention_date": "2022-03-01",
+        "frequency": "monthly",
+        "ground_truth": {
+            "effect_size": -1200.0,
+            "effect_direction": "decrease",
+            "effect_duration": "permanent (gradual 6-month ramp)",
+            "expected_effect_range": [-2000, -500],
+            "expected_p_value_range": [0.0, 0.05],
+            "notes": "Interest rate hike reduced mortgage applications by ~20%",
+        },
+    }
+    return df, meta
+
+
+def generate_carbon_tax() -> tuple[pd.DataFrame, dict]:
+    n_quarters = 4 * 8
+    dates = pd.date_range("2016-01-01", periods=n_quarters, freq="QS")
+
+    ts = TimeSeriesBuilder(n_quarters, seed=42)
+    ts.add_trend(slope=-2, intercept=500)
+    ts.add_seasonality(period=4, amplitude=20, phase=0)
+    ts.add_ar_noise(ar_params=[0.2], sigma=10)
+    values = ts.build()
+
+    tax_idx = np.searchsorted(dates, pd.Timestamp("2019-01-01"))
+    ramp_up = 4
+    effect = -45
+    ramp = np.linspace(0, effect, ramp_up)
+    values[tax_idx : tax_idx + ramp_up] += ramp
+    values[tax_idx + ramp_up :] += effect
+
+    values = np.clip(values, 300, 600)
+
+    df = pd.DataFrame(
+        {"date": dates.strftime("%Y-%m-%d"), "emissions_kt": np.round(values, 1)}
+    )
+
+    meta = {
+        "label": "Industrial CO2 Emissions (Quarterly, 2016-2023)",
+        "description": "Quarterly industrial CO2 emissions (kilotons). Test carbon tax effect.",
+        "date_col": "date",
+        "metric_col": "emissions_kt",
+        "intervention_date": "2019-01-01",
+        "frequency": "quarterly",
+        "ground_truth": {
+            "effect_size": -45.0,
+            "effect_direction": "decrease",
+            "effect_duration": "permanent (gradual 4-quarter ramp)",
+            "expected_effect_range": [-70, -20],
+            "expected_p_value_range": [0.0, 0.10],
+            "notes": "Carbon tax reduced industrial emissions by ~10%",
+        },
+    }
+    return df, meta
+
+
 ALL_GENERATORS = [
     ("delhi_aqi", generate_delhi_aqi),
     ("gst_revenue", generate_gst_revenue),
@@ -436,6 +562,9 @@ ALL_GENERATORS = [
     ("student_scores", generate_student_scores),
     ("traffic_accidents", generate_traffic_accidents),
     ("website_sessions", generate_website_sessions),
+    ("mask_mandates", generate_mask_mandates),
+    ("interest_rates", generate_interest_rates),
+    ("carbon_tax", generate_carbon_tax),
 ]
 
 
